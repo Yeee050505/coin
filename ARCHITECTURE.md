@@ -1,98 +1,98 @@
-# Architecture — Multi-Agent Financial Research System
+# 架构 — 多 Agent 智能金融研究系统
 
 ## 系统目的
 
 基于多 Agent 协作的智能金融研究系统，自动完成「需求理解 → 信息检索 → 数据分析 → 报告撰写 → 质量评审」全流程。用户只需提交研究主题，系统在约 **100 秒** 内输出深度研究报告（约 7000 字），覆盖公司基本面、行业分析、财务解读、业绩归因和投资建议。
 
-## Tech Stack
+## 技术栈
 
-| Layer | Technology | Details |
+| 层 | 技术 | 说明 |
 |---|---|---|
-| **Frontend** | React 18, TypeScript, Ant Design 5, Vite, Axios | SPA with polling-based status updates |
-| **Backend** | Python 3.13, FastAPI, SQLAlchemy 2.0, PyMySQL | REST API on port 8001 |
-| **Agent Framework** | Custom async multi-agent (not LangGraph despite directory name) | `asyncio.gather` + sequential loop |
-| **LLM** | DeepSeek Chat API (`deepseek-chat`) via `httpx` | Direct HTTP calls (avoids OpenAI SDK encoding issues) |
-| **Data Sources** | AKShare (东方财富/新浪/同花顺), yfinance, Tavily Search API | Multi-source with race/failover pattern |
-| **Database** | MySQL 8.0 with JSON columns | `research_projects`, `research_tasks` tables |
-| **Task Orchestration** | `asyncio` event loop + `ThreadPoolExecutor` | Daemon thread per workflow |
+| **前端** | React 18, TypeScript, Ant Design 5, Vite, Axios | SPA，轮询更新状态 |
+| **后端** | Python 3.13, FastAPI, SQLAlchemy 2.0, PyMySQL | REST API，端口 8001 |
+| **Agent 框架** | 自定义异步多 Agent（非 LangGraph） | `asyncio.gather` + 串行循环 |
+| **LLM** | DeepSeek Chat API（`deepseek-chat`） via `httpx` | 直连 HTTP，规避 OpenAI SDK 编码问题 |
+| **数据源** | AKShare（东方财富/新浪/同花顺）, yfinance, Tavily 搜索 API | 多源竞争/故障转移模式 |
+| **数据库** | MySQL 8.0，JSON 列 | `research_projects`、`research_tasks` 表 |
+| **任务编排** | `asyncio` 事件循环 + `ThreadPoolExecutor` | 每个工作流独占一个守护线程 |
 
-## Overall Architecture
+## 整体架构
 
 ```
-User ──► Frontend (React + Ant Design)
+用户 ──► 前端 (React + Ant Design)
             │ POST /api/projects {title, description}
             ▼
-         FastAPI Backend (main.py:8001)
+         FastAPI 后端 (main.py:8001)
             │
-            │ 1. Create ResearchProject row (status=pending)
-            │ 2. Spawn daemon threading.Thread
+            │ 1. 创建 ResearchProject 记录 (status=pending)
+            │ 2. 启动 daemon threading.Thread
             ▼
-         ┌─ Daemon Thread ──────────────────────────────┐
-         │  asyncio.new_event_loop()                    │
-         │    └─ WorkflowGraph.run(project_id, request) │
-         │         │                                    │
-         │    ┌────┴────────────────┐                   │
-         │    │  Phase 1 — Parallel │ asyncio.gather()  │
-         │    │  chief_architect    │                   │
-         │    │  deep_scout         │                   │
-         │    │  chief_data_engineer│                   │
-         │    └────┬────────────────┘                   │
-         │         ▼                                    │
-         │    ┌────┴────────────────┐                   │
-         │    │  Phase 2 — Sequential                   │
-         │    │  data_analyst       │                   │
-         │    │  chief_researcher   │                   │
-         │    │  critic_master      │◄── rollback ──────│
-         │    └────┬────────────────┘  (max 2 retries)  │
-         │         ▼                                    │
-         │    Save final_report to DB + .md file        │
-         └──────────────────────────────────────────────┘
+         ┌─ 守护线程 ──────────────────────────────┐
+         │  asyncio.new_event_loop()               │
+         │    └─ WorkflowGraph.run(project_id, req)│
+         │         │                               │
+         │    ┌────┴──────────────┐                │
+         │    │ Phase 1 — 并行    │ asyncio.gather │
+         │    │ chief_architect   │                │
+         │    │ deep_scout        │                │
+         │    │ chief_data_engineer│               │
+         │    └────┬──────────────┘                │
+         │         ▼                               │
+         │    ┌────┴──────────────┐                │
+         │    │ Phase 2 — 串行                     │
+         │    │ data_analyst      │                │
+         │    │ chief_researcher  │                │
+         │    │ critic_master     │◄── 回滚 ──────│
+         │    └────┬──────────────┘ (最多 2 次)    │
+         │         ▼                               │
+         │    保存最终报告到 DB + .md 文件           │
+         └─────────────────────────────────────────┘
             │
             ▼
-         Frontend polls GET /api/projects/:id every 3s
-         until status != (pending|running)
+         前端每 3 秒轮询 GET /api/projects/:id
+         直到 status ≠ (pending|running)
 ```
 
-## Agent Workflow
+## Agent 工作流
 
-Six agents execute across two phases:
+六个 Agent 分为两个阶段执行：
 
-### Phase 1 — Parallel (`asyncio.gather`)
+### 阶段 1 — 并行（`asyncio.gather`）
 
-| Agent | Role | Output |
+| Agent | 职责 | 输出 |
 |---|---|---|
-| **chief_architect** | Generate research outline via LLM | Markdown chapter structure |
-| **deep_scout** | Multi-source web search (Tavily + DuckDuckGo) + RAG retrieval | Search synthesis text |
-| **chief_data_engineer** | Fetch financial data via AKShare/yfinance + LLM interpretation | Compact financial analysis |
+| **chief_architect** | LLM 生成研究大纲 | Markdown 章节结构 |
+| **deep_scout** | 多源网络搜索（Tavily + DuckDuckGo）+ RAG 检索 | 搜索综合文本 |
+| **chief_data_engineer** | 通过 AKShare/yfinance 获取财务数据 + LLM 解读 | 精简财务分析 |
 
-All three run concurrently. After all complete, their outputs are saved to `research_tasks` table.
+三者并发执行，全部完成后将输出保存到 `research_tasks` 表。
 
-### Phase 2 — Sequential (with retry/rollback)
+### 阶段 2 — 串行（带重试/回滚）
 
-| Step | Agent | Inputs |
+| 步骤 | Agent | 输入依赖 |
 |---|---|---|
-| 1 | **data_analyst** | Financial data → LLM generates chart specs → `run_chart_code` tool renders SVG |
-| 2 | **chief_researcher** | Outline + search synthesis + financial interpretation → LLM writes full report |
-| 3 | **critic_master** | Draft report → LLM review → `passed`/`failed` with score |
+| 1 | **data_analyst** | 财务数据 → LLM 生成图表规格 → `run_chart_code` 工具渲染 SVG |
+| 2 | **chief_researcher** | 大纲 + 搜索综合 + 财务解读 → LLM 撰写完整报告 |
+| 3 | **critic_master** | 草稿报告 → LLM 评审 → `passed`/`failed` + 评分 |
 
-### Rollback Flow
-
-```
-critic_master.review_passed == false AND retry_count < MAX_RETRIES (2)
-  → Reset chief_researcher task state
-  → Re-run chief_researcher (reuses same outline/search/financial data)
-  → Re-run critic_master
-  → Repeat up to 2 times
-```
-
-### Agent Execution Loop (`BaseAgent.run`)
+### 回滚流程
 
 ```
-execute()       → agent-specific logic (LLM calls + tool calls)
+critic_master.review_passed == false 且 retry_count < MAX_RETRIES (2)
+  → 重置 chief_researcher 任务状态
+  → 重新执行 chief_researcher（复用相同的大纲/搜索/财务数据）
+  → 重新执行 critic_master
+  → 最多重复 2 次
+```
+
+### Agent 执行循环（`BaseAgent.run`）
+
+```
+execute()       → Agent 特有逻辑（LLM 调用 + 工具调用）
   ↓
-reflect()       → validate output (base: checks non-empty)
+reflect()       → 验证输出（基础实现：检查非空）
   ↓
-Save to state   → state.agent_tasks[name].output_data
+保存到状态      → state.agent_tasks[name].output_data
 ```
 
 ## Agent 调度机制
@@ -102,7 +102,7 @@ Save to state   → state.agent_tasks[name].output_data
 ```
 ┌─ IntentParser.parse(request) ──► stock_codes + dimensions
 │
-├─ Init ResearchState (project_id, title, request, stock_codes)
+├─ 初始化 ResearchState (project_id, title, request, stock_codes)
 │
 ├─ Phase 1 — 并行调度 ── asyncio.gather() ───────────────────┐
 │   ├─ chief_architect.run(state)                             │  同时执行
@@ -118,7 +118,7 @@ Save to state   → state.agent_tasks[name].output_data
 │   └─ critic_master.run(state)       需要 researcher 输出    │
 │       │                                                     │
 │       └─ review_passed == false ?                           │
-│           └─ retry < 2 → reset chief_researcher → 重试       │
+│           └─ retry < 2 → 重置 chief_researcher → 重试       │
 │                                                             │
 └─ 更新 project.status = success/failed                       │
 ```
@@ -164,7 +164,7 @@ POST /api/projects
 | **chief_data_engineer** | 获取真实财务数据并做初步解读 | AKShare（3 源 failover）获取行情/财报/yfinance 国际数据，LLM 分析趋势 |
 | **data_analyst** | 数据可视化，生成图表 | LLM 生成 python 代码 → `run_chart_code` 工具 → matplotlib 渲染 SVG |
 | **chief_researcher** | 综合所有信息撰写完整深度研究报告 | LLM 融合 3 个 phase1 输出，生成 7000+ 字结构化报告 |
-| **critic_master** | 质量评审，控制是否回退重写 | LLM 评分 + review_passed 开关，触发 crit→researcher 回滚（最多 2 次） |
+| **critic_master** | 质量评审，控制是否回退重写 | LLM 评分 + review_passed 开关，触发 critic→researcher 回滚（最多 2 次） |
 
 ## 量化成果（基准测试）
 
@@ -172,80 +172,78 @@ POST /api/projects
 
 | 指标 | 均值 | 最小值 | 最大值 | 说明 |
 |------|------|--------|--------|------|
-| **Phase1 耗时** | 23.4s | 20.1s | 25.1s | 3 agent 并行：架构师+侦察+数据工程 |
-| **Phase2 耗时** | 30.1s | 30.1s | 30.2s | 串行：分析师+研究员+评论家（研究员 LLM 占 ~25s） |
-| **总耗时** | 103.8s | 100.4s | 110.5s | API create → status=success |
-| **任务成功率** | 100% | — | — | 6/6 agent 全部 success |
+| **阶段 1 耗时** | 23.4s | 20.1s | 25.1s | 3 Agent 并行：架构师 + 侦察兵 + 数据工程师 |
+| **阶段 2 耗时** | 30.1s | 30.1s | 30.2s | 串行：数据分析师 + 研究员 + 评论家（研究员 LLM 占 ~25s） |
+| **总耗时** | 103.8s | 100.4s | 110.5s | API 创建 → status=success |
+| **任务成功率** | 100% | — | — | 6/6 Agent 全部 success |
 | **创建响应** | 0.03s | — | — | API 立即返回 project_id，异步执行 |
 
-**故障修复后对比（P41 与 P32 对比）：**
-- 修复前：P32 卡在第 3 agent（DB JSON 序列化失败 → session 挂死），前台无限轮询
-- 修复后：P41-P48 全部 103s 内完成，report 写入磁盘，前端正常显示完成
+**故障修复前后对比（P41 vs P32）：**
+- 修复前：P32 卡在第 3 个 Agent（DB JSON 序列化失败 → session 挂死），前端无限轮询
+- 修复后：P41-P48 全部 103s 内完成，报告写入磁盘，前端正常显示完成
 
-## File Map
+## 文件映射
 
 ```
 backend/
-  main.py                          — FastAPI entry, lifespan, static mount
+  main.py                          — FastAPI 入口，生命周期，静态资源挂载
   app/
     api/
-      projects.py                  — POST /api/projects (creates + spawns thread)
-                                     GET /api/projects, GET /api/projects/:id
-                                     DELETE /api/projects/:id
-      reports.py                   — GET /api/reports/:id, GET /api/reports/:id/download
-      dashboard.py                 — GET /api/dashboard/summary
+      projects.py                  — POST/GET/DELETE 项目接口 + 工作流线程启动
+      reports.py                   — GET /api/reports/:id 报告查询与下载
+      dashboard.py                 — GET /api/dashboard/summary 仪表盘
     models/
-      __init__.py                  — SQLAlchemy engine, session factory, init_db()
-      database.py                  — ResearchProject, ResearchTask ORM models (JSON columns)
+      __init__.py                  — SQLAlchemy 引擎、session 工厂、init_db()
+      database.py                  — ResearchProject、ResearchTask ORM 模型（JSON 列）
     schemas/
-      common.py                    — Pydantic request/response models
+      common.py                    — Pydantic 请求/响应模型
     agents/
       base/
-        base_agent.py              — BaseAgent: _call_llm(), run(), execute() abstract, reflect()
+        base_agent.py              — BaseAgent: _call_llm(), run(), execute() 抽象, reflect()
     tools/
-      financial_api.py             — AKShare (EM/Sina/THS) + yfinance wrappers, _race(), caching
-      registry.py                  — Tool decorator + dispatch (web_search, fetch_financial_data, run_chart_code, etc.)
+      financial_api.py             — AKShare（东方财富/新浪/同花顺）+ yfinance 封装，_race()，缓存
+      registry.py                  — 工具装饰器 + 调度（web_search, fetch_financial_data, run_chart_code）
     core/
-      config.py                    — Settings from .env (API keys, DB URL)
-      state.py                     — ResearchState, AgentTaskState (Pydantic models)
-    reports/                       — Generated .md report files
+      config.py                    — .env 配置（API 密钥、数据库 URL）
+      state.py                     — ResearchState、AgentTaskState（Pydantic 模型）
+    reports/                       — 生成的 .md 报告文件
   agent_core/
     scheduler_agent/
-      graph_builder.py             — WorkflowGraph: parse → phase1 parallel → phase2 sequential → save
-      intent_parser.py             — Extract stock codes / dimensions from user request
+      graph_builder.py             — WorkflowGraph：解析 → 阶段 1 并行 → 阶段 2 串行 → 保存
+      intent_parser.py             — 从用户请求中提取股票代码/分析维度
     sub_agents/
-      chief_architect.py           — Phase 1: research outline (LLM)
-      deep_scout.py                — Phase 1: web search + RAG (Tavily/DDGS)
-      data_engineer.py             — Phase 1: AKShare/yfinance data + LLM analysis
-      data_analyst.py              — Phase 2: chart generation (LLM + matplotlib)
-      chief_researcher.py          — Phase 2: full report composition (LLM)
-      critic_master.py             — Phase 2: quality review + rollback decision (LLM)
+      chief_architect.py           — 阶段 1：研究大纲（LLM）
+      deep_scout.py                — 阶段 1：网络搜索 + RAG（Tavily/DDGS）
+      data_engineer.py             — 阶段 1：AKShare/yfinance 数据 + LLM 分析
+      data_analyst.py              — 阶段 2：图表生成（LLM + matplotlib）
+      chief_researcher.py          — 阶段 2：完整报告撰写（LLM）
+      critic_master.py             — 阶段 2：质量评审 + 回滚决策（LLM）
 frontend/
   src/
-    App.tsx                        — Router (single route: /)
-    components/MainLayout.tsx      — Sider + Header + Content, dashboard polling
-    pages/TaskManage.tsx           — CRUD table, create modal, detail modal, 3s polling
-    services/api.ts                — Axios client (baseURL /api)
+    App.tsx                        — 路由（单路由：/）
+    components/MainLayout.tsx      — 侧边栏 + 顶栏 + 内容区，仪表盘轮询
+    pages/TaskManage.tsx           — CRUD 表格、创建弹窗、详情弹窗、3 秒轮询
+    services/api.ts                — Axios 客户端（baseURL /api）
 ```
 
-## Key Design Decisions
+## 关键设计决策
 
-### Why `asyncio` + `ThreadPoolExecutor` for AKShare
+### 为什么 AKShare 使用 `asyncio` + `ThreadPoolExecutor`
 
-AKShare is a synchronous library (wraps `requests`). Running it directly in the asyncio event loop would block the loop. The pattern uses `loop.run_in_executor(_single_executor, sync_fn)` to offload AKShare calls to a dedicated thread pool while keeping the rest of the agent framework async.
+AKShare 是同步库（封装 `requests`）。直接在 asyncio 事件循环中运行会阻塞循环。采用 `loop.run_in_executor(_single_executor, sync_fn)` 模式将 AKShare 调用卸载到专用线程池，同时保持 Agent 框架的异步性。
 
-### Why sequential vs parallel phases
+### 为什么阶段 1 并行、阶段 2 串行
 
-Phase 1 agents (architect, scout, engineer) have no data dependencies on each other — they all read only the raw user request — so they can run in parallel via `asyncio.gather`. Phase 2 agents have strict data dependencies: `data_analyst` needs `financial_data`, `chief_researcher` needs all Phase 1 outputs, and `critic_master` needs the draft report. Sequential execution also enables the rollback loop (re-run `chief_researcher` → `critic_master`).
+阶段 1 的 Agent（架构师、侦察兵、数据工程师）彼此没有数据依赖——它们都只读取原始用户请求——因此可以通过 `asyncio.gather` 并行运行。阶段 2 的 Agent 有严格的数据依赖：`data_analyst` 需要 `financial_data`，`chief_researcher` 需要所有阶段 1 的输出，`critic_master` 需要草稿报告。串行执行还能支持回滚循环（重新执行 `chief_researcher` → `critic_master`）。
 
-### Why `_json_safe`
+### 为什么需要 `_json_safe`
 
-MySQL `JSON` columns and SQLAlchemy's JSON type cannot store `numpy.int64`, `numpy.float64`, `pandas.Timestamp`, or `NaN/Inf` float values. The `_json_safe()` function recursively converts these to native Python types (`int`, `float`, `str`, `None`) before persisting, preventing `JSON_encode` errors.
+MySQL `JSON` 列和 SQLAlchemy 的 JSON 类型无法存储 `numpy.int64`、`numpy.float64`、`pandas.Timestamp` 或 `NaN/Inf` 浮点值。`_json_safe()` 函数递归地将这些值转换为原生 Python 类型（`int`、`float`、`str`、`None`），防止 JSON 编码错误。
 
-### Why each DB path uses a fresh session
+### 为什么每个数据库路径都使用新会话
 
-The workflow runs in a daemon thread with its own asyncio loop. SQLAlchemy sessions are not thread-safe and carry identity map state. Opening a new session via `get_session()` for each operation (task save, status update, error handling) avoids transaction state pollution and stale object issues across async boundaries.
+工作流在守护线程中运行，自带 asyncio 循环。SQLAlchemy 会话不是线程安全的，并且携带身份映射状态。每个操作（任务保存、状态更新、错误处理）都通过 `get_session()` 打开新会话，可以避免跨异步边界的事务状态污染和过期对象问题。
 
-### Why `_single_executor` for AKShare calls
+### 为什么 AKShare 调用使用 `_single_executor`
 
-Python 3.13 on Windows has known issues with thread pool + asyncio interactions when multiple threads share the same executor. Using `ThreadPoolExecutor(max_workers=1)` (`_single_executor`) serializes AKShare calls, which is acceptable because AKShare internally throttles API requests. This avoids deadlocks and race conditions in the concurrent.futures + asyncio bridge on Windows.
+Python 3.13 在 Windows 上存在线程池与 asyncio 交互的已知问题，当多个线程共享同一个执行器时尤为突出。使用 `ThreadPoolExecutor(max_workers=1)`（`_single_executor`）序列化 AKShare 调用，这是可以接受的，因为 AKShare 内部会限制 API 请求频率。这样可以避免 Windows 上 concurrent.futures + asyncio 桥接中的死锁和竞态条件。
