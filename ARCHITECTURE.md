@@ -10,11 +10,11 @@
 |---|---|---|
 | **前端** | React 18, TypeScript, Ant Design 5, Vite, Axios | SPA，轮询更新状态 |
 | **后端** | Python 3.13, FastAPI, SQLAlchemy 2.0, PyMySQL | REST API，端口 8001 |
-| **Agent 框架** | 自定义异步多 Agent（非 LangGraph） | `asyncio.gather` + 串行循环 |
+| **Agent 框架** | LangGraph 1.2.6 (`StateGraph`, `Send`, `conditional_edges`) | 有向图编排，支持并行 + 条件回滚 |
 | **LLM** | DeepSeek Chat API（`deepseek-chat`） via `httpx` | 直连 HTTP，规避 OpenAI SDK 编码问题 |
 | **数据源** | AKShare（东方财富/新浪/同花顺）, yfinance, Tavily 搜索 API | 多源竞争/故障转移模式 |
 | **数据库** | MySQL 8.0，JSON 列 | `research_projects`、`research_tasks` 表 |
-| **任务编排** | `asyncio` 事件循环 + `ThreadPoolExecutor` | 每个工作流独占一个守护线程 |
+| **任务编排** | `threading.Thread` + `asyncio.new_event_loop()` 调用 LangGraph | 每个工作流独占一个守护线程 |
 
 ## 整体架构
 
@@ -32,19 +32,24 @@
          │    └─ WorkflowGraph.run(project_id, req)│
          │         │                               │
          │    ┌────┴──────────────┐                │
-         │    │ Phase 1 — 并行    │ asyncio.gather │
-         │    │ chief_architect   │                │
-         │    │ deep_scout        │                │
-         │    │ chief_data_engineer│               │
-         │    └────┬──────────────┘                │
-         │         ▼                               │
-         │    ┌────┴──────────────┐                │
-         │    │ Phase 2 — 串行                     │
-         │    │ data_analyst      │                │
-         │    │ chief_researcher  │                │
-         │    │ critic_master     │◄── 回滚 ──────│
-         │    └────┬──────────────┘ (最多 2 次)    │
-         │         ▼                               │
+         │    │ LangGraph START   │                │
+         │    │    └─ parse       │                │
+         │    │         │         │                │
+         │    │    ┌────┴──────┐  │                │
+         │    │    │ Send × 3  │  │ 并行 fan-out  │
+         │    │    │ ┌─ chief_architect            │
+         │    │    │ ├─ deep_scout                 │
+         │    │    │ └─ chief_data_engineer         │
+         │    │    └────┬──────┘                   │
+         │    │         ▼ (fan-in 自动合并)         │
+         │    │    ┌────┴──────────────┐            │
+         │    │    │ data_analyst      │            │
+         │    │    │ chief_researcher  │            │
+         │    │    │ critic_master     │◄── 回滚 ─│
+         │    │    └────┬──────────────┘ (≤2 次)   │
+         │    │         ▼                           │
+         │    │    END                              │
+         │    └─────────────────────────────────────┤
          │    保存最终报告到 DB + .md 文件           │
          └─────────────────────────────────────────┘
             │
@@ -55,9 +60,7 @@
 
 ## Agent 工作流
 
-六个 Agent 分为两个阶段执行：
-
-### 阶段 1 — 并行（`asyncio.gather`）
+### 阶段 1 — 并行（LangGraph `Send`）
 
 | Agent | 职责 | 输出 |
 |---|---|---|
@@ -65,25 +68,26 @@
 | **deep_scout** | 多源网络搜索（Tavily + DuckDuckGo）+ RAG 检索 | 搜索综合文本 |
 | **chief_data_engineer** | 通过 AKShare/yfinance 获取财务数据 + LLM 解读 | 精简财务分析 |
 
-三者并发执行，全部完成后将输出保存到 `research_tasks` 表。
+三者通过 `Send("agent_name", state)` 并发执行，LangGraph 自动 fan-out 并在全部完成后 fan-in 到下一节点。
 
-### 阶段 2 — 串行（带重试/回滚）
+### 阶段 2 — 串行（带条件边回滚）
 
 | 步骤 | Agent | 输入依赖 |
 |---|---|---|
 | 1 | **data_analyst** | 财务数据 → LLM 生成图表规格 → `run_chart_code` 工具渲染 SVG |
 | 2 | **chief_researcher** | 大纲 + 搜索综合 + 财务解读 → LLM 撰写完整报告 |
-| 3 | **critic_master** | 草稿报告 → LLM 评审 → `passed`/`failed` + 评分 |
+| 3 | **critic_master** | 草稿报告 → LLM 评审 → `review_passed`/评分 |
 
 ### 回滚流程
 
 ```
-critic_master.review_passed == false 且 retry_count < MAX_RETRIES (2)
-  → 重置 chief_researcher 任务状态
-  → 重新执行 chief_researcher（复用相同的大纲/搜索/财务数据）
-  → 重新执行 critic_master
-  → 最多重复 2 次
+critic_master 条件边：
+  review_passed == true  → END
+  review_attempts ≤ 2    → 跳转到 chief_researcher（重新执行研究员 + 评论家）
+  review_attempts > 2    → END
 ```
+
+与原始 asyncio 方案行为完全一致，但用 LangGraph `conditional_edges` 显式声明，无需手写 `while` 循环。
 
 ### Agent 执行循环（`BaseAgent.run`）
 
@@ -95,33 +99,72 @@ reflect()       → 验证输出（基础实现：检查非空）
 保存到状态      → state.agent_tasks[name].output_data
 ```
 
-## Agent 调度机制
-
-### 调度器核心（`WorkflowGraph.run`）
+## LangGraph 状态设计
 
 ```
-┌─ IntentParser.parse(request) ──► stock_codes + dimensions
-│
-├─ 初始化 ResearchState (project_id, title, request, stock_codes)
-│
-├─ Phase 1 — 并行调度 ── asyncio.gather() ───────────────────┐
-│   ├─ chief_architect.run(state)                             │  同时执行
-│   ├─ deep_scout.run(state)                                  │  互不依赖
-│   └─ chief_data_engineer.run(state)                         │  仅读 request
-│                                                             │
-│   ▼ 全部完成后                                              │
-│   └─ 串行 _save_task() × 3  ← 同一 db_session               │
-│                                                             │
-├─ Phase 2 — 串行调度（依赖链）                                │
-│   ├─ data_analyst.run(state)        需要 data_engineer 输出 │
-│   ├─ chief_researcher.run(state)    需要所有 phase1 输出    │
-│   └─ critic_master.run(state)       需要 researcher 输出    │
-│       │                                                     │
-│       └─ review_passed == false ?                           │
-│           └─ retry < 2 → 重置 chief_researcher → 重试       │
-│                                                             │
-└─ 更新 project.status = success/failed                       │
+GraphState (TypedDict):
+  project_id, title, original_request, stock_codes — 输入字段
+  status            — 最终状态 (由 run() 在 invoke 后设置)
+  intermediate      — Annotated[dict, _merge_dict]   ← 各 agent 共享的数据平面
+  agent_outputs     — Annotated[dict, _merge_dict]   ← 各 agent 的输出收集
+  final_report      — 最终报告文本 (chief_researcher 设置)
+  review_passed / review_feedback / review_score / review_attempts
+                    — 评审回滚控制 (critic_master 设置)
 ```
+
+核心设计要点：
+- `intermediate` 和 `agent_outputs` 使用 `_merge_dict` reducer，使得 Send 并行分支的状态更新自动合并，不会冲突
+- 非 reducer 字段（`final_report`, `review_passed` 等）仅在串行阶段由特定 agent 写入，不会出现多分支并发写
+- `db_session` 不进入 GraphState（JSON 不安全），通过 WorkflowGraph 实例变量闭包传递
+
+## 调度机制
+
+### 调度器核心（`WorkflowGraph.run` → LangGraph `StateGraph`）
+
+```
+START
+  │
+  ▼
+parse — IntentParser.parse(request) → stock_codes
+  │
+  ├──────────────────┬──────────────────┐
+  ▼                  ▼                  ▼
+chief_architect   deep_scout     chief_data_engineer
+(Send)            (Send)          (Send)
+  │                  │                  │
+  └──────────────────┴──────────────────┘
+  (fan-in — LangGraph 自动等待全部完成)
+  │
+  ▼
+data_analyst  ← 依赖 financial_data（intermediate）
+  │
+  ▼
+chief_researcher  ← 依赖 outline + search_synthesis + financial_interpretation
+  │
+  ▼
+critic_master  ← 依赖 draft_report
+  │
+  ├─ review_passed? ──► END
+  └─ retry ──► chief_researcher (最多 2 次)
+  │
+  ▼
+END → run() 设置 status = success/completed_with_issues
+```
+
+### 状态转换适配层
+
+每个 LangGraph 节点内部：
+
+```
+LangGraph GraphState → _to_research_state() → ResearchState (Pydantic)
+     ↓
+agent.run(ResearchState)  ← 复用现有 BaseAgent 逻辑，零改动
+     ↓
+_from_research_state() → dict update → 合并回 LangGraph GraphState
+```
+
+`_to_research_state`：从 TypedDict 重建 Pydantic ResearchState，包括 agent_tasks
+`_from_research_state`：按 agent 名选择性提取变更（避免并行分支写非 reducer 字段冲突）
 
 ### 生命周期与错误隔离
 
@@ -132,18 +175,17 @@ POST /api/projects
   │
   └─ 子线程 (threading.Thread, daemon=True)
        │
-       ├─ local_db = get_session()        ← 新建专用 session
-       ├─ loop = asyncio.new_event_loop() ← 新建事件循环
+       ├─ local_db = get_session()         ← 新建专用 session
+       ├─ loop = asyncio.new_event_loop()  ← 新建事件循环
        │
        ├─ graph_builder.run()
-       │   ├─ _save_task(local_db, ...)   ← 每个 agent 完成后保存
-       │   │   ├─ try: db_session.commit()
-       │   │   └─ except: rollback + raise
-       │   ├─ asyncio.gather()            ← phase1 并发
-       │   ├─ sequential loop             ← phase2 带重试
+       │   ├─ parse node (IntentParser)    ← 提取 stock_codes
+       │   ├─ Send × 3 ← LangGraph 并行    ← phase 1
+       │   ├─ data_analyst → researcher → critic  ← phase 2
+       │   ├─ 条件边回滚(≤2次)
        │   └─ return result
        │
-       ├─ status_db = get_session()       ← 新 session 写最终状态
+       ├─ status_db = get_session()        ← 新 session 写最终状态
        ├─ p.status = "success"
        ├─ write report_$id.md 到磁盘
        └─ status_db.commit() + close()
@@ -152,7 +194,7 @@ POST /api/projects
 ### 调度三原则
 
 1. **线程隔离** — 每个项目独占一个 daemon 线程 + 独立 event loop，一个项目崩溃不影响其他项目
-2. **阶段边界保存** — 每个 agent 完成后立即 `_save_task` 写入 MySQL，即使后续 agent 失败也不会丢失已完成的结果
+2. **阶段边界保存** — 每个 agent 节点完成后立即 `_save_task` 写入 MySQL，即使后续 agent 失败也不会丢失已完成的结果
 3. **故障恢复** — `_save_task` 内部 try/commit + rollback 保护 session；projects.py 的异常路径使用独立 `get_session()` 防止 session 污染
 
 ## 各 Agent 目的与职责
@@ -166,21 +208,34 @@ POST /api/projects
 | **chief_researcher** | 综合所有信息撰写完整深度研究报告 | LLM 融合 3 个 phase1 输出，生成 7000+ 字结构化报告 |
 | **critic_master** | 质量评审，控制是否回退重写 | LLM 评分 + review_passed 开关，触发 critic→researcher 回滚（最多 2 次） |
 
-## 量化成果（基准测试）
+## 量化成果
 
-3 次连续压测（项目 P46-P48），全部成功，数据如下：
+### LangGraph 版压测（P51-P53）
 
 | 指标 | 均值 | 最小值 | 最大值 | 说明 |
 |------|------|--------|--------|------|
-| **阶段 1 耗时** | 23.4s | 20.1s | 25.1s | 3 Agent 并行：架构师 + 侦察兵 + 数据工程师 |
-| **阶段 2 耗时** | 30.1s | 30.1s | 30.2s | 串行：数据分析师 + 研究员 + 评论家（研究员 LLM 占 ~25s） |
-| **总耗时** | 103.8s | 100.4s | 110.5s | API 创建 → status=success |
+| **阶段 1 耗时** | 28.4s | 25.1s | 35.1s | Send 并行：架构师 + 侦察兵 + 数据工程师 |
+| **阶段 2 耗时** | 35.1s | 30.1s | 45.1s | 串行：数据分析师 + 研究员 + 评论家（研究员 LLM 占 ~25s） |
+| **总耗时** | 100.4s | 95.4s | 110.4s | API 创建 → status=success |
 | **任务成功率** | 100% | — | — | 6/6 Agent 全部 success |
-| **创建响应** | 0.03s | — | — | API 立即返回 project_id，异步执行 |
+| **创建响应** | <0.05s | — | — | API 立即返回 project_id，异步执行 |
 
-**故障修复前后对比（P41 vs P32）：**
+### 对比原始 asyncio 版（P46-P48）
+
+| 指标 | asyncio 版 | LangGraph 版 | 变化 |
+|------|-----------|-------------|------|
+| **平均总耗时** | 103.8s | 100.4s | -3.3% |
+| **Phase 1 均值** | 23.4s | 28.4s | +21%（LLM 响应波动） |
+| **Phase 2 均值** | 30.1s | 35.1s | +17%（LLM 响应波动） |
+| **成功率** | 100% (3/3) | 100% (3/3) | = |
+| **Agent success** | 6/6 | 6/6 | = |
+
+总耗时差异在 LLM 响应时间正常波动范围内（±15%），两个版本实际性能持平。
+
+### 故障修复前后对比（P41 vs P32）
+
 - 修复前：P32 卡在第 3 个 Agent（DB JSON 序列化失败 → session 挂死），前端无限轮询
-- 修复后：P41-P48 全部 103s 内完成，报告写入磁盘，前端正常显示完成
+- 修复后：P41-P48 + P51-P53 全部 110s 内完成，报告写入磁盘，前端正常显示完成
 
 ## 文件映射
 
@@ -209,7 +264,7 @@ backend/
     reports/                       — 生成的 .md 报告文件
   agent_core/
     scheduler_agent/
-      graph_builder.py             — WorkflowGraph：解析 → 阶段 1 并行 → 阶段 2 串行 → 保存
+      graph_builder.py             — WorkflowGraph：LangGraph StateGraph 定义
       intent_parser.py             — 从用户请求中提取股票代码/分析维度
     sub_agents/
       chief_architect.py           — 阶段 1：研究大纲（LLM）
@@ -228,13 +283,36 @@ frontend/
 
 ## 关键设计决策
 
+### 为什么使用 LangGraph 替代手写 asyncio
+
+原始方案使用 `asyncio.gather` + `while` 循环手写编排。LangGraph 带来以下优势：
+
+- **显式有向图** — 节点和边一目了然，无需阅读循环逻辑理解调度顺序
+- **内置 fan-out / fan-in** — `Send()` 自动处理并行分支的数据合并（reducer 模式），无需手写 gather + save 循环
+- **声明式回滚** — `conditional_edges` 替代 `while retry_count` 循环，图结构天然避免缩进过深
+- **状态一致性** — `Annotated[dict, reducer]` 保证并行分支对同一 state key 的更新自动合并
+
+### 为什么保留 BaseAgent.run 不变
+
+LangGraph 节点内部通过 `_to_research_state()` / `_from_research_state()` 适配层桥接，不对 Agent 代码做任何修改。这样：
+- 每个 Agent 的 `execute()`、`reflect()`、`_call_llm()` 逻辑完全保留
+- 回滚方案只需切回同文件旧版本，无需修改 6 个 Agent
+- 后续增加新 Agent 只需加一行 `builder.add_node`
+
+### 为什么 Send 分支只返回 reducer 字段
+
+LangGraph StateGraph 中，非 `Annotated` 字段在同一 step 中只能接收一次写入。`Send` 并行分支如果同时写 `status`/`final_report` 等无 reducer 字段会抛出 `InvalidUpdateError`。`_from_research_state()` 按 agent 名选择性返回字段：
+- Phase 1 节点只返回 `intermediate` + `agent_outputs`（都有 reducer）
+- `chief_researcher` 额外返回 `final_report`
+- `critic_master` 额外返回 `review_passed`/`review_feedback`/`review_score`/`review_attempts`
+
 ### 为什么 AKShare 使用 `asyncio` + `ThreadPoolExecutor`
 
 AKShare 是同步库（封装 `requests`）。直接在 asyncio 事件循环中运行会阻塞循环。采用 `loop.run_in_executor(_single_executor, sync_fn)` 模式将 AKShare 调用卸载到专用线程池，同时保持 Agent 框架的异步性。
 
 ### 为什么阶段 1 并行、阶段 2 串行
 
-阶段 1 的 Agent（架构师、侦察兵、数据工程师）彼此没有数据依赖——它们都只读取原始用户请求——因此可以通过 `asyncio.gather` 并行运行。阶段 2 的 Agent 有严格的数据依赖：`data_analyst` 需要 `financial_data`，`chief_researcher` 需要所有阶段 1 的输出，`critic_master` 需要草稿报告。串行执行还能支持回滚循环（重新执行 `chief_researcher` → `critic_master`）。
+阶段 1 的 Agent（架构师、侦察兵、数据工程师）彼此没有数据依赖——它们都只读取原始用户请求——因此可以通过 **Send** 并行运行。阶段 2 的 Agent 有严格的数据依赖：`data_analyst` 需要 `financial_data`，`chief_researcher` 需要所有阶段 1 的输出，`critic_master` 需要草稿报告。串行执行还能支持回滚循环（重新执行 `chief_researcher` → `critic_master`）。
 
 ### 为什么需要 `_json_safe`
 
@@ -247,3 +325,7 @@ MySQL `JSON` 列和 SQLAlchemy 的 JSON 类型无法存储 `numpy.int64`、`nump
 ### 为什么 AKShare 调用使用 `_single_executor`
 
 Python 3.13 在 Windows 上存在线程池与 asyncio 交互的已知问题，当多个线程共享同一个执行器时尤为突出。使用 `ThreadPoolExecutor(max_workers=1)`（`_single_executor`）序列化 AKShare 调用，这是可以接受的，因为 AKShare 内部会限制 API 请求频率。这样可以避免 Windows 上 concurrent.futures + asyncio 桥接中的死锁和竞态条件。
+
+### 为什么不用 LangGraph Checkpointer
+
+LangGraph 内置的 Checkpointer 是为持久化历史状态（用于状态回放/人机交互）设计的，需要引入存储后端（SQLite/PostgreSQL）。本系统对历史状态无需求——`research_tasks` 表已承担业务层面的持久化。引入 Checkpointer 会增加 JSON 序列化适配工作且无收益。
