@@ -2,7 +2,7 @@
 import asyncio
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 from datetime import datetime, timezone
 from app.core.state import ResearchState
 from app.tools.registry import call_tool
@@ -25,7 +25,17 @@ class BaseAgent(ABC):
         self.model_name = model_name
         self.system_prompt = system_prompt
     async def _call_llm(self, user_message: str, system_override: str = "", temperature: float = 0.7) -> str:
-        """Calls DeepSeek LLM via direct HTTP (avoids openai package encoding issues)."""
+        """Calls LLM: local Qwen (transformers) or DeepSeek via direct HTTP."""
+        from app.core.config import settings
+        if settings.llm_provider == "local_qwen":
+            from app.llm.local_qwen import generate
+            system = system_override or self.system_prompt
+            messages = []
+            if system:
+                messages.append({"role": "system", "content": system})
+            messages.append({"role": "user", "content": user_message})
+            return await generate(messages, temperature=temperature)
+
         import asyncio, httpx
         system = system_override or self.system_prompt
         if system:
@@ -60,6 +70,90 @@ class BaseAgent(ABC):
         except Exception as e:
             logger.error(f"[{self.name}] LLM call failed: {e}")
             raise
+
+    async def _call_llm_with_tools(self, user_message: str, tools: Optional[List[Dict]] = None,
+                                   max_rounds: int = 4, temperature: float = 0.7) -> Dict[str, Any]:
+        """LLM with function calling: model picks tools + args, tools execute, loop until final answer."""
+        from app.core.config import settings
+        if settings.llm_provider == "local_qwen":
+            from app.llm.local_qwen import generate_with_tools
+            return await generate_with_tools(self.system_prompt, user_message, tools or [],
+                                             max_rounds=max_rounds, temperature=temperature)
+
+        import asyncio, httpx, json
+        messages: List[Dict[str, Any]] = []
+        if self.system_prompt:
+            messages.append({"role": "system", "content": self.system_prompt})
+        messages.append({"role": "user", "content": user_message})
+
+        trace: List[Dict[str, Any]] = []
+        headers = {
+            "Authorization": f"Bearer {settings.deepseek_api_key}",
+            "Content-Type": "application/json; charset=utf-8",
+        }
+        async with httpx.AsyncClient(timeout=90.0) as client:
+            for _ in range(max_rounds):
+                payload = {
+                    "model": self.model_name,
+                    "messages": messages,
+                    "temperature": temperature,
+                    "max_tokens": 4096,
+                }
+                if tools:
+                    payload["tools"] = tools
+                    payload["tool_choice"] = "auto"
+                json_bytes = json.dumps(payload, ensure_ascii=True).encode("utf-8")
+                resp = await client.post(
+                    f"{settings.deepseek_api_base}/chat/completions",
+                    content=json_bytes,
+                    headers=headers,
+                )
+                resp.raise_for_status()
+                msg = resp.json()["choices"][0]["message"]
+                calls = msg.get("tool_calls") or []
+
+                if not calls:
+                    return {"content": msg.get("content") or "", "tool_calls": trace, "rounds": len(trace)}
+
+                messages.append({
+                    "role": "assistant",
+                    "content": msg.get("content") or "",
+                    "tool_calls": [{"id": c.get("id", ""), "type": "function",
+                                    "function": {"name": c["function"]["name"],
+                                                 "arguments": c["function"].get("arguments", "{}")}} for c in calls],
+                })
+                results = await asyncio.gather(
+                    *[self._execute_tool_call(c.get("function", {})) for c in calls],
+                    return_exceptions=True,
+                )
+                for c, result in zip(calls, results):
+                    if isinstance(result, BaseException):
+                        result = {"status": "error", "message": str(result)[:200]}
+                    trace.append({
+                        "name": c["function"]["name"],
+                        "args": self._parse_tool_args(c["function"].get("arguments", "")),
+                        "result": result,
+                    })
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": c.get("id", f"call_{len(trace)}"),
+                        "content": json.dumps(result, ensure_ascii=False, default=str)[:4000],
+                    })
+        return {"content": "", "tool_calls": trace, "rounds": max_rounds, "max_rounds_reached": True}
+
+    async def _execute_tool_call(self, fn: Dict[str, Any]) -> Any:
+        name = fn.get("name", "")
+        args = self._parse_tool_args(fn.get("arguments", ""))
+        return await call_tool(name, **args)
+
+    @staticmethod
+    def _parse_tool_args(arguments: str) -> Dict[str, Any]:
+        import json
+        try:
+            parsed = json.loads(arguments or "{}")
+            return parsed if isinstance(parsed, dict) else {}
+        except json.JSONDecodeError:
+            return {}
 
     @abstractmethod
     async def execute(self, context: AgentContext) -> Dict[str, Any]:

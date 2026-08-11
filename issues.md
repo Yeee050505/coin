@@ -94,7 +94,7 @@
 
 ## 7. LLM 返回乱码（"您的消息是乱码"）
 
-**现象：** Agent 调用 DeepSeek API 后，LLM 回复「您发送的内容是乱码」，内容中全是 `???`。
+**现象：** Agent 调用 DeepSeek API 后，LLM 回复「您发送的内容是乱码」，内容中全是 `???`。  
 
 **根因（关键）：** 
 1. PowerShell 的 `@''...''@ | python -` here-string 在 Windows 上使用系统 locale 编码（如 cp1252），**不是 UTF-8**。当中文通过这种管道传给 Python 时会被破坏。
@@ -130,16 +130,6 @@
 **根因：** git revert 把 `main.py` 的 `port=8001` 还原成了 `port=8000`。
 
 **修复：** 改回 `port=8001`。
-
----
-
-## 10. 旧服务器进程未彻底杀死
-
-**现象：** `Stop-Process -Name python` 未能杀掉所有 Python 进程（带控制台的进程杀不掉），端口被旧进程持续占用。
-
-**修复：** 使用 `taskkill /F /PID` 强制杀死指定 PID。
-
----
 
 ## 11. 前端构建可能带过期缓存
 
@@ -336,3 +326,122 @@ MySQL JSON 列（`ResearchTask.output_data`）无法序列化 numpy 类型（`nu
 
 **涉及文件：**
 - `backend/agent_core/sub_agents/chief_researcher.py`
+
+---
+
+## 21. Agent 无 Tool 选择权 — 工具调用硬编码
+
+**状态：** ✅ 已修复
+
+**现象：** 每个 Agent 的 `execute()` 里直接写死了调哪个工具，比如 `deep_scout` 固定调 `web_search`，`data_engineer` 固定调 `fetch_financial_data`。Agent 无法根据上下文自主决定用哪个工具。
+
+**根因：** 架构设计上 Agent 被当作"固定管道节点"而非自主 Agent——prompt 暗示 + 代码硬绑定工具，不走 function calling。
+
+**修复（已完成）：**
+- `BaseAgent` 新增 `_call_llm_with_tools()`：支持 OpenAI 兼容的 `tools`/`tool_choice=auto` 参数，循环执行 LLM 选择的工具调用，`max_rounds=4` 兜底防死循环，同轮工具调用用 `asyncio.gather` 并行执行
+- 配套 `_execute_tool_call()` + `_parse_tool_args()`（容错非 JSON 参数）
+- `deep_scout` 改为 function calling 模式：LLM 自主决定搜索角度（实测自主发起 4 次搜索 + 1 次知识检索），产出搜索综合结果；FC 失败或无结果时自动降级回原硬编码搜索流程
+- 修复连带发现的 `web_search` bug：`import asyncio` 位于 `from ddgs import DDGS` 之后，ddgs 缺失时 `except asyncio.TimeoutError` 抛 UnboundLocalError 掩盖真实错误（asyncio 已移到模块顶部）
+- DDGS 搜索超时 5s → 20s（实测 ddgs 首次查询需 ~15s）
+
+**涉及文件：**
+- `backend/app/agents/base/base_agent.py`
+- `backend/agent_core/sub_agents/deep_scout.py`
+- `backend/app/tools/registry.py`
+
+---
+
+## 22. Agent 无多轮迭代能力
+
+**现象：** 每个 Agent 的 `execute()` 跑一次就结束，无法对自己的产出做自我评估和修正。唯一的多轮是 `critic → researcher` 那一条回退边，但也只是重新跑一遍 researcher，不是 Agent 内部的迭代。
+
+**根因：** `BaseAgent.execute()` 设计成单次调用，没有 while 循环/自评机制。`reflect()` 方法是空骨架，从未被调用。
+
+**影响：**
+- Agent 生成质量全凭一次 LLM 调用的运气
+- 无法像人类分析师那样"写一版 → 审阅 → 修改"
+- Critic 评审出问题也只能整段重来，不能局部修正
+
+**修复方向：** `execute()` 改 `run(max_turns)`，内部 while 循环：`_call_llm` → 评估产出 → 不满足则反馈修正 → 继续，直到达标或用完轮次。
+
+**涉及文件：**
+- `backend/app/agents/base/base_agent.py`
+- `backend/agent_core/sub_agents/*.py`（全部 6 个 Agent）
+
+---
+
+## 23. Agent 无记忆系统
+
+**现象：** 当前 Agent 没有任何记忆：
+- 短期：`_call_llm` 每次传独立的 messages，前一轮回复不保留
+- 中期：`ResearchTask` 只存最终入/出，不存多轮轨迹
+- 长期：跨任务知识沉淀为零——同一个股票第二次跑研报不会比第一次好
+
+**根因：** 设计时未考虑记忆分层。`_call_llm` 仅传当前轮 prompt，`intermediate dict` 只保留最新数据不保留历史轨迹。
+
+**影响：**
+- Agent 无法从之前的迭代中学习
+- 任务中断后无法恢复上下文
+- 跨任务知识不能复用
+
+**修复方向：**
+- 短期：`messages[]` 滑动窗口，保留最近 N 轮对话历史
+- 中期：`ResearchTask` 加 `conversation_log: JSON`，存完整多轮轨迹，任务可恢复
+- 长期：任务结束后提炼 insights → 向量库 → 下次同类任务自动检索
+
+**涉及文件：**
+- `backend/app/agents/base/base_agent.py`
+- `backend/app/models/database.py`
+- `backend/agent_core/scheduler_agent/graph_builder.py`
+
+---
+
+## 24. DAG 编译时固定，Agent 间无法主动对话
+
+**现象：** Agent 只能通过 `intermediate dict` 被动读写数据，没有能力主动发送消息给另一个 Agent。图结构在 `_build_graph()` 里用 `add_edge` 一次性定死，运行时不能动态增加交互。
+
+**根因：** `StateGraph` 编译时固定边拓扑，Agent 之间是隐式数据流而非显式消息传递。
+
+**影响：**
+- Agent A 不能主动找 Agent B 确认信息或请求补充数据
+- 无法实现类似 AutoGen 的 Agent 间对话协商
+- 添加新的交互关系必须改图代码 + 重新编译
+
+**修复方向：** `GraphState` 加 `inbox: list[Message]` + `send()` 方法，运行时动态路由消息。
+
+**涉及文件：**
+- `backend/agent_core/scheduler_agent/graph_builder.py`
+- `backend/app/core/state.py`
+
+---
+
+## 25. LLM 后端迁移至本地模型（Qwen2.5-3B-Instruct）
+
+**背景：** 用户要求讨论去掉远程 API 调用，改用本地模型运行全流程。
+
+**实施：**
+- 新增 `backend/app/llm/local_qwen.py`：lazy 单例加载（transformers，bf16，`device_map="auto"`），`_gen_lock` 线程锁串行化推理（单 GPU 不能并发），`run_in_executor` 隔离阻塞生成
+- function calling 本地版：ReAct 风格 JSON 协议（`{"tool": ...}` / `{"answer": ...}`），不依赖 DeepSeek 的 tools 参数
+- `base_agent.py` 的 `_call_llm` / `_call_llm_with_tools` 按 `settings.llm_provider` 分支：`local_qwen` / `deepseek`，可随时切换
+- `.env` 新增 `LLM_PROVIDER=local_qwen` + `LOCAL_MODEL_PATH`（指向 modelscope 缓存）
+
+**环境约束与处理：**
+- 16GB RAM + 8GB VRAM：7B 模型（D:\qwen，14GB bf16）放不下；改用 3B（5.75GB bf16）直接装 GPU
+- bitsandbytes 安装超时失败 → 放弃 4-bit 量化路线，3B 无需量化
+- transformers 5.x：`torch_dtype` 已废弃 → 用 `dtype` 参数
+
+**压测（本地模型）：**
+- P60（宁德时代）：总耗时 ~458s，6/6 success，报告 3140 字
+- P61（完美世界）：总耗时 ~400s，6/6 success，报告 2970 字；6 Agent 全 success 后因机器定时关机（凌晨 1:30）进程被强杀，最终状态由 DB 数据恢复
+- 瓶颈：研究员长文本生成（~218s 均值，占总量 ~50%），本地 3B 推理 ~25-35 token/s
+
+**连带修复：**
+- `projects.py` 工作流超时 300s → 1200s（本地模型跑不完全流程）
+- `README.md` 启动命令修正：实际入口是 `main:app` 而非 `app.main:app`
+
+**涉及文件：**
+- `backend/app/llm/local_qwen.py`（新增）
+- `backend/app/agents/base/base_agent.py`
+- `backend/app/api/projects.py`
+- `backend/.env`
+- `backend/requirements.txt`（无新增依赖，transformers+torch 已在环境）

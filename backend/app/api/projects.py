@@ -36,7 +36,7 @@ async def create_project(req: ResearchRequest, db: Session = Depends(get_db)):
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 coro = builder.run(project_id, full_request, db_session=local_db)
-                result = loop.run_until_complete(asyncio.wait_for(coro, timeout=300))
+                result = loop.run_until_complete(asyncio.wait_for(coro, timeout=1200))
                 loop.close()
                 status_db = get_session()
                 try:

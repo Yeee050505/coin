@@ -65,7 +65,7 @@
 | Agent | 职责 | 输出 |
 |---|---|---|
 | **chief_architect** | LLM 生成研究大纲 | Markdown 章节结构 |
-| **deep_scout** | 多源网络搜索（Tavily + DuckDuckGo）+ RAG 检索 | 搜索综合文本 |
+| **deep_scout** | 多源网络搜索（function calling 自主决定搜索角度） | 搜索综合文本 |
 | **chief_data_engineer** | 通过 AKShare/yfinance 获取财务数据 + LLM 解读 | 精简财务分析 |
 
 三者通过 `Send("agent_name", state)` 并发执行，LangGraph 自动 fan-out 并在全部完成后 fan-in 到下一节点。
@@ -202,7 +202,7 @@ POST /api/projects
 | Agent | 目的 | 核心能力 |
 |-------|------|----------|
 | **chief_architect** | 理解用户需求，制定研究框架和报告大纲 | LLM 生成 8 章结构，覆盖产品概况、业绩、持仓、策略、风险、持有人、对比、结论 |
-| **deep_scout** | 多源网络检索，收集行业动态和最新信息 | Tavily API + DuckDuckGo 并行搜索，RAG 知识库检索 |
+| **deep_scout** | 多源网络检索，收集行业动态和最新信息 | function calling 自主调用 web_search（DuckDuckGo） |
 | **chief_data_engineer** | 获取真实财务数据并做初步解读 | AKShare（3 源 failover）获取行情/财报/yfinance 国际数据，LLM 分析趋势 |
 | **data_analyst** | 数据可视化，生成图表 | LLM 生成 python 代码 → `run_chart_code` 工具 → matplotlib 渲染 SVG |
 | **chief_researcher** | 综合所有信息撰写完整深度研究报告 | LLM 融合 3 个 phase1 输出，生成 7000+ 字结构化报告 |
@@ -237,6 +237,19 @@ POST /api/projects
 - 修复前：P32 卡在第 3 个 Agent（DB JSON 序列化失败 → session 挂死），前端无限轮询
 - 修复后：P41-P48 + P51-P53 全部 110s 内完成，报告写入磁盘，前端正常显示完成
 
+### 本地模型压测（P60-P61：Qwen2.5-3B-Instruct，bf16 GPU）
+
+| 指标 | P60 | P61 | 均值 | 说明 |
+|------|-----|-----|------|------|
+| **模型加载** | ~17s | —（热启动复用） | ~17s | 首次调用 lazily 加载，~10GB 显存占用 |
+| **阶段 1 耗时** | ~72s | ~95s | ~84s | 并行 3 Agent + 图表；DDGS 搜索抖动 |
+| **研究员生成** | ~236s | ~200s | ~218s | 单次 4096 token 上限生成，本地推理速度瓶颈 |
+| **总耗时** | ~458s | ~400s | ~430s | API 创建 → 全部 Agent success |
+| **任务成功率** | 100% | 100% | 100% | 6/6 Agent 全部 success |
+| **报告长度** | 3140 字 | 2970 字 | ~3050 字 | 受 max_new_tokens=4096 上限约束 |
+
+对比说明：本地 3B 模型推理速度约 25-35 token/s（RTX 4060 Laptop），Phase 2 研究员单次长文本生成为主要瓶颈（占总量 ~50%）。P61 在 6 Agent 全 success 后因机器定时关机被强杀，最终状态由 DB 数据恢复补写。
+
 ## 文件映射
 
 ```
@@ -268,7 +281,7 @@ backend/
       intent_parser.py             — 从用户请求中提取股票代码/分析维度
     sub_agents/
       chief_architect.py           — 阶段 1：研究大纲（LLM）
-      deep_scout.py                — 阶段 1：网络搜索 + RAG（Tavily/DDGS）
+      deep_scout.py                — 阶段 1：网络搜索（function calling / DDGS）
       data_engineer.py             — 阶段 1：AKShare/yfinance 数据 + LLM 分析
       data_analyst.py              — 阶段 2：图表生成（LLM + matplotlib）
       chief_researcher.py          — 阶段 2：完整报告撰写（LLM）

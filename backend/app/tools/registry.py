@@ -1,4 +1,5 @@
 import logging
+import asyncio
 from typing import Any, Dict, List, Optional, Callable
 from app.core.config import settings
 
@@ -46,11 +47,11 @@ async def web_search(query: str, max_results: int = 5):
 
     try:
         from ddgs import DDGS
-        import asyncio
+
         async def _ddgs_search():
             loop = asyncio.get_running_loop()
             return await loop.run_in_executor(None, lambda: list(DDGS().text(query, max_results=max_results)))
-        rlist = await asyncio.wait_for(_ddgs_search(), timeout=5.0)
+        rlist = await asyncio.wait_for(_ddgs_search(), timeout=20.0)
         if rlist:
             return {"status": "success", "results": [{"title": r.get("title",""), "url": r.get("href",""), "content": r.get("body","")[:500]} for r in rlist], "source": "ddgs"}
     except asyncio.TimeoutError:
@@ -110,8 +111,6 @@ async def text2sql(keyword: str):
         return {"status": "error", "message": str(e)[:100], "source": "text2sql"}
 
 
-# ?? Code Sandbox ??
-
 @register_tool(name="run_chart_code", description="Generate a financial chart from data series",
                parameters={"type": "object", "properties": {
                    "chart_type": {"type": "string", "enum": ["bar", "line", "pie"]},
@@ -142,43 +141,3 @@ async def run_chart_code(chart_type: str = "bar", title: str = "", labels: list 
     svg_data = base64.b64encode(buf.read()).decode()
     plt.close()
     return {"status": "success", "chart_data": f"data:image/svg+xml;base64,{svg_data}", "source": "chart_template"}
-
-
-# ?? RAG Retrieval ??
-
-@register_tool(name="retrieve_knowledge", description="Retrieve relevant financial knowledge from knowledge base",
-               parameters={"type": "object", "properties": {"query": {"type": "string"}, "top_k": {"type": "integer"}}, "required": ["query"]})
-async def retrieve_knowledge(query: str, top_k: int = 5):
-    knowledge = {
-        "market_size": "中国A股市场总市值约80万亿元，日均成交额约8000亿元。市场由散户和机构投资者共同主导，近年来机构化趋势明显。",
-        "financial_report": "财务报表包括资产负债表、利润表和现金流量表。核心指标包括营收增长率、毛利率、净利率、ROE、ROA、资产负债率、经营性现金流等。",
-        "competitor": "竞争分析框架：波特五力模型（供应商议价能力、买方议价能力、新进入者威胁、替代品威胁、同业竞争）。核心竞争要素包括技术壁垒、品牌优势、成本优势、渠道优势等。",
-        "risk": "投资风险包括市场风险（系统性风险）、信用风险、流动性风险、操作风险、政策风险等。常用风险指标包括Beta、VaR、最大回撤、夏普比率等。",
-        "valuation": "估值方法包括DCF现金流折现法、PE市盈率、PB市净率、PS市销率、EV/EBITDA企业价值倍数、PEG等。不同行业适用不同估值方法。",
-        "investment": "投资策略包括价值投资、成长投资、趋势投资、量化投资等。需结合宏观经济、行业周期、公司基本面和技术面综合判断。",
-        "industry": "行业分析框架：PEST分析（政策Policy、经济Economic、社会Social、技术Technology）、生命周期理论（导入期、成长期、成熟期、衰退期）。",
-        "economy": "宏观经济指标包括GDP增速、CPI通胀率、PPI工业品价格、PMI采购经理人指数、M2货币供应量、利率、汇率、社融数据等。",
-    }
-    try:
-        q = query.lower()
-        keywords = {"market_size": ["市场", "规模", "市值", "成交"],
-                     "financial_report": ["财务", "报表", "营收", "利润", "ROE"],
-                     "competitor": ["竞争", "波特", "五力", "对手"],
-                     "risk": ["风险", "Beta", "VaR", "回撤"],
-                     "valuation": ["估值", "PE", "PB", "DCF", "市盈率"],
-                     "investment": ["投资", "策略", "价值投资"],
-                     "industry": ["行业", "PEST", "生命周期"],
-                     "economy": ["经济", "GDP", "CPI", "PPI", "PMI"]}
-        scored = []
-        for key, kws in keywords.items():
-            score = sum(2 for kw in kws if kw in q) + (1 if key.replace("_","") in q.replace(" ","") else 0)
-            if score > 0:
-                scored.append((key, knowledge[key], score))
-        scored.sort(key=lambda x: x[2], reverse=True)
-        results = [{"content": text, "score": s, "source": f"knowledge_base:{key}"} for key, text, s in scored[:top_k]]
-        if not results:
-            results = [{"content": knowledge[k], "score": 1, "source": f"knowledge_base:{k}"} for k in list(knowledge)[:top_k]]
-        return {"status": "success", "results": results, "source": "keyword_rag"}
-    except Exception as e:
-        logger.warning(f"RAG retrieval failed: {e}")
-        return {"status": "error", "results": [], "message": "RAG retrieval unavailable", "source": "keyword_rag"}

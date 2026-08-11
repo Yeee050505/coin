@@ -20,3 +20,7 @@ issues.md
 !ARCHITECTURE.md
 !ISSUE.md
 !README.md
+_server_log.txt
+backend/_server_out.txt
+backend/_server_err.txt
+backend/app/reports/
