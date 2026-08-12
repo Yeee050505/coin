@@ -97,8 +97,10 @@ supervisor 决策：run_researcher(instruction=critic反馈) ──► auto crit
 |---|---|
 | **阶段门控** | 模型决策无效 / 乱 finish 时，自动按规范顺序（architect→scout→engineer→analyst→researcher）推进下一缺省阶段 |
 | **重复守卫** | 同一 worker 决策连续 ≥2 次 → 强制兜底流水线（auto critic 后重置计数，避免误伤合法追问） |
-| **兜底流水线** | 主控完全失效时顺序执行完整流程 + 一轮 feedback 修订 |
+| **兜底流水线** | 主控完全失效时顺序执行完整流程 + 一轮 feedback 修订（修订轮强制 DeepSeek） |
 | **critic 阈值** | score ≥ 55 视为通过（3B 评审过严会烧光轮次） |
+| **DS 调用兜底** | 本地推理异常/空输出 → 自动重试 DeepSeek API（`_call_llm` / `_call_llm_with_tools` / supervisor `decide`） |
+| **DS 评分兜底** | `review_attempts >= 2` → researcher + critic 强制切 DeepSeek 重写再审（P67 实测升级后一次通过） |
 
 ### Agent 执行循环（`BaseAgent.run`）
 
@@ -257,11 +259,13 @@ POST /api/projects
 | P64 腾讯 | 8 | ✅(守卫) | 3 次未过 | 3813 | 模型全自主决策（scout→engineer→architect→analyst→researcher），映射 bug 修复 |
 | P65 招行 | 8 | ❌ | 4 次未过 | 3823 | 守卫修复，追问循环跑满无兜底 |
 | P66 隆基绿能 | 6 | ❌ | ✅ 通过(75) | 7752 | critic 阈值(≥55)生效，首轮审查收敛 |
+| P67 爱尔眼科 | 8 | ❌ | ✅ 通过(72) | 10912 | **DS 评分兜底**：本地评审连挂 2 次 → 自动切 DS 重写再审，一次通过 |
 
 结论：
 - 本地 3B 可完成**完整自主编排**（自主规划顺序、带反馈重派研究员）+ **多轮追问闭环**（critic 携上次反馈复查，P66 一次收敛）
-- 阶段门控 + 兜底流水线保证 100% 产出报告（5/5 success）
+- 阶段门控 + 兜底流水线保证 100% 产出报告（6/6 success）
 - critic 严格度需阈值收敛，否则追问循环烧满 8 轮（P65 验证守卫不误伤但轮次仍耗尽）
+- **DS 双重兜底**（P67）：调用失败自动重试 DS + 评审连挂 2 次强制 DS 重写再审，质量不达标可升级解决
 
 ## 文件映射
 

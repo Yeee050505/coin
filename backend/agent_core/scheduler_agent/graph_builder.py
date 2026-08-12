@@ -19,6 +19,7 @@ from agent_core.scheduler_agent.intent_parser import IntentParser
 logger = logging.getLogger(__name__)
 SUPERVISOR_MAX_ROUNDS = 8
 CANONICAL_ORDER = ["run_architect", "run_scout", "run_data_engineer", "run_analyst", "run_researcher"]
+REVIEW_ESCALATE_AFTER = 2
 
 
 def _json_safe(obj):
@@ -271,6 +272,14 @@ class WorkflowGraph:
                     gs["intermediate"]["research_instruction"] = instruction
                 else:
                     gs["intermediate"].pop("research_instruction", None)
+                if gs.get("review_attempts", 0) >= REVIEW_ESCALATE_AFTER:
+                    gs["intermediate"]["research_provider"] = "deepseek"
+                    gs["intermediate"]["critic_provider"] = "deepseek"
+                    logger.info(f"[supervisor] review failed {gs.get('review_attempts')} times, "
+                                f"escalating researcher+critic to DeepSeek")
+                else:
+                    gs["intermediate"].pop("research_provider", None)
+                    gs["intermediate"].pop("critic_provider", None)
 
             worker = WORKER_BY_TOOL[tool]
             try:
@@ -333,6 +342,9 @@ class WorkflowGraph:
                 gs["intermediate"] = dict(gs.get("intermediate") or {})
                 gs["intermediate"]["research_instruction"] = str(gs.get("review_feedback") or "")[:1000]
                 gs["intermediate"]["critic_previous_feedback"] = str(gs.get("review_feedback") or "")[:1000]
+                gs["intermediate"]["research_provider"] = "deepseek"
+                gs["intermediate"]["critic_provider"] = "deepseek"
+                logger.info("[supervisor] fallback revision round uses DeepSeek")
                 gs.update(await self._node_agent(gs, "chief_researcher"))
                 gs.update(await self._node_agent(gs, "critic_master"))
         return gs

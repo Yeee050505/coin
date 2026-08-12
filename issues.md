@@ -486,3 +486,37 @@ MySQL JSON 列（`ResearchTask.output_data`）无法序列化 numpy 类型（`nu
 - `backend/agent_core/scheduler_agent/graph_builder.py`
 - `backend/agent_core/sub_agents/chief_researcher.py`
 - `backend/agent_core/sub_agents/critic_master.py`
+
+---
+
+## 27. DeepSeek API 兜底（调用失败 + 评分不合格双重降级）
+
+**背景：** 本地 Qwen2.5-3B 为主推理后端，但存在两个缺口：① 本地推理崩溃/超时/空输出时流程直接失败；② 本地 critic 评审过严，追问循环烧满轮次也不通过（P64/P65 实测）。用户要求用 DeepSeek API 做兜底。
+
+**实施（两级兜底）：**
+
+| 级别 | 触发条件 | 行为 |
+|---|---|---|
+| **调用兜底** | 本地 `generate` 异常/空输出（`_call_llm` / `_call_llm_with_tools` / supervisor `decide`） | 自动重试一次 DeepSeek API |
+| **评分兜底** | `review_attempts >= 2`（本地评审连续未通过） | 下一次 `run_researcher` + `run_critic` 强制切 DeepSeek 重写再审 |
+
+**实现细节：**
+- `BaseAgent._call_llm` / `_call_llm_with_tools` 拆出 `_call_llm_deepseek` / `_call_llm_with_tools_deepseek`，本地分支 try/except + 空输出检查 → DS 兜底（`settings.deepseek_api_key` 存在时）
+- `SupervisorAgent.decide` 拆出 `_decide_deepseek`，本地决策异常 → DS
+- `_call_llm` 增加 `provider_override` 参数：researcher / critic 通过 intermediate 的 `research_provider` / `critic_provider` 键强制指定 provider（supervisor 升级时写入）
+- `graph_builder.py`：`REVIEW_ESCALATE_AFTER = 2`，researcher 派遣前检查 `review_attempts >= 2` → 写 `research_provider=deepseek` + `critic_provider=deepseek`；兜底流水线的修订轮同样强制 DS
+
+**压测（P67 爱尔眼科，本地为主）：**
+- round 5：本地 researcher + 本地 critic → 未通过（attempt 1）
+- round 6：模型再派 run_critic → 未通过（attempt 2）
+- round 7：模型重派 run_researcher → **自动升级 DS**（日志 `escalating researcher+critic to DeepSeek`）→ DS 重写 + DS 评审 → **passed=True（72 分）**
+- 最终：8 轮、无兜底流水线、报告 10912 字、status=success
+
+**结论：** 两级兜底配合下，本地小模型"能跑"与"质量达标"可兼得：本地便宜跑通，质量不达标自动升 DS。DS 网络失败时仍走原异常路径，不影响本地主链路。
+
+**涉及文件：**
+- `backend/app/agents/base/base_agent.py`
+- `backend/agent_core/sub_agents/supervisor_agent.py`
+- `backend/agent_core/sub_agents/chief_researcher.py`
+- `backend/agent_core/sub_agents/critic_master.py`
+- `backend/agent_core/scheduler_agent/graph_builder.py`

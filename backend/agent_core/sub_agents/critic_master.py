@@ -46,7 +46,8 @@ Output in Chinese.
         previous = context.intermediate.get("critic_previous_feedback", "")
         if previous:
             review_prompt += f"\n\nPrevious review feedback (check whether these issues have been FIXED):\n{previous}"
-        review_response = await self._call_llm(review_prompt)
+        provider = context.intermediate.get("critic_provider", "")
+        review_response = await self._call_llm(review_prompt, provider_override=provider)
 
         try:
             json_match = re.search(r'\{.*\}', review_response, re.DOTALL)

@@ -24,18 +24,31 @@ class BaseAgent(ABC):
         self.name = name
         self.model_name = model_name
         self.system_prompt = system_prompt
-    async def _call_llm(self, user_message: str, system_override: str = "", temperature: float = 0.7) -> str:
-        """Calls LLM: local Qwen (transformers) or DeepSeek via direct HTTP."""
+    async def _call_llm(self, user_message: str, system_override: str = "", temperature: float = 0.7,
+                        provider_override: str = "") -> str:
+        """Calls LLM: local Qwen (transformers) primary, DeepSeek API as fallback."""
         from app.core.config import settings
-        if settings.llm_provider == "local_qwen":
-            from app.llm.local_qwen import generate
-            system = system_override or self.system_prompt
-            messages = []
-            if system:
-                messages.append({"role": "system", "content": system})
-            messages.append({"role": "user", "content": user_message})
-            return await generate(messages, temperature=temperature)
+        provider = provider_override or settings.llm_provider
+        if provider == "local_qwen":
+            try:
+                from app.llm.local_qwen import generate
+                system = system_override or self.system_prompt
+                messages = []
+                if system:
+                    messages.append({"role": "system", "content": system})
+                messages.append({"role": "user", "content": user_message})
+                result = await generate(messages, temperature=temperature)
+                if result.strip():
+                    return result
+                logger.warning(f"[{self.name}] local model returned empty, falling back to DeepSeek")
+            except Exception as e:
+                logger.warning(f"[{self.name}] local model failed, falling back to DeepSeek: {e}")
+            if settings.deepseek_api_key:
+                return await self._call_llm_deepseek(user_message, system_override, temperature)
+            raise
+        return await self._call_llm_deepseek(user_message, system_override, temperature)
 
+    async def _call_llm_deepseek(self, user_message: str, system_override: str = "", temperature: float = 0.7) -> str:
         import asyncio, httpx
         system = system_override or self.system_prompt
         if system:
@@ -72,14 +85,27 @@ class BaseAgent(ABC):
             raise
 
     async def _call_llm_with_tools(self, user_message: str, tools: Optional[List[Dict]] = None,
-                                   max_rounds: int = 4, temperature: float = 0.7) -> Dict[str, Any]:
-        """LLM with function calling: model picks tools + args, tools execute, loop until final answer."""
+                                   max_rounds: int = 4, temperature: float = 0.7,
+                                   provider_override: str = "") -> Dict[str, Any]:
+        """LLM with function calling: model picks tools + args, tools execute, loop until final answer.
+        Local Qwen primary, DeepSeek API as fallback on local failure."""
         from app.core.config import settings
-        if settings.llm_provider == "local_qwen":
-            from app.llm.local_qwen import generate_with_tools
-            return await generate_with_tools(self.system_prompt, user_message, tools or [],
-                                             max_rounds=max_rounds, temperature=temperature)
+        provider = provider_override or settings.llm_provider
+        if provider == "local_qwen":
+            try:
+                from app.llm.local_qwen import generate_with_tools
+                return await generate_with_tools(self.system_prompt, user_message, tools or [],
+                                                 max_rounds=max_rounds, temperature=temperature)
+            except Exception as e:
+                logger.warning(f"[{self.name}] local tool loop failed, falling back to DeepSeek: {e}")
+                if settings.deepseek_api_key:
+                    return await self._call_llm_with_tools_deepseek(
+                        user_message, tools, max_rounds, temperature)
+                raise
+        return await self._call_llm_with_tools_deepseek(user_message, tools, max_rounds, temperature)
 
+    async def _call_llm_with_tools_deepseek(self, user_message: str, tools: Optional[List[Dict]] = None,
+                                            max_rounds: int = 4, temperature: float = 0.7) -> Dict[str, Any]:
         import asyncio, httpx, json
         messages: List[Dict[str, Any]] = []
         if self.system_prompt:

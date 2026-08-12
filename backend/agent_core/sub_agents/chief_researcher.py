@@ -54,7 +54,8 @@ Write in Chinese."""
         instruction = context.intermediate.get("research_instruction", "")
         if instruction:
             prompt += f"\n\n## 修改要求（来自审查反馈，必须落实）\n{instruction}\n"
-        final_report = await self._call_llm(prompt, temperature=0.5)
+        provider = context.intermediate.get("research_provider", "")
+        final_report = await self._call_llm(prompt, temperature=0.5, provider_override=provider)
 
         context.save_intermediate("draft_report", final_report)
         context.state.final_report = final_report

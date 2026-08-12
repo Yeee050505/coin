@@ -91,25 +91,35 @@ class SupervisorAgent(BaseAgent):
         {"type": "tool", "tool": ..., "args": {...}}
         {"type": "finish", "content": ...}
         {"type": "invalid", "raw": ...}
+        Local Qwen primary, DeepSeek API as fallback on local failure.
         """
         from app.core.config import settings
         history = history or []
 
         if settings.llm_provider == "local_qwen":
-            from app.llm.local_qwen import generate, _parse_json
-            msgs = [
-                {"role": "system", "content": self.system_prompt + "\n\n" + LOCAL_LOOP_INSTRUCTION},
-                *history,
-                {"role": "user", "content": snapshot},
-            ]
-            resp = await generate(msgs, temperature=0.3, max_new_tokens=800)
-            parsed = _parse_json(resp)
-            if parsed and parsed.get("tool") and isinstance(parsed.get("args"), dict):
-                return {"type": "tool", "tool": str(parsed["tool"]), "args": parsed["args"]}
-            if parsed and "answer" in parsed:
-                return {"type": "finish", "content": str(parsed["answer"])}
-            return {"type": "invalid", "raw": resp[:300]}
+            try:
+                from app.llm.local_qwen import generate, _parse_json
+                msgs = [
+                    {"role": "system", "content": self.system_prompt + "\n\n" + LOCAL_LOOP_INSTRUCTION},
+                    *history,
+                    {"role": "user", "content": snapshot},
+                ]
+                resp = await generate(msgs, temperature=0.3, max_new_tokens=800)
+                parsed = _parse_json(resp)
+                if parsed and parsed.get("tool") and isinstance(parsed.get("args"), dict):
+                    return {"type": "tool", "tool": str(parsed["tool"]), "args": parsed["args"]}
+                if parsed and "answer" in parsed:
+                    return {"type": "finish", "content": str(parsed["answer"])}
+                return {"type": "invalid", "raw": resp[:300]}
+            except Exception as e:
+                logger.warning(f"[supervisor] local decide failed, falling back to DeepSeek: {e}")
+                if settings.deepseek_api_key:
+                    return await self._decide_deepseek(snapshot, history)
+                raise
+        return await self._decide_deepseek(snapshot, history)
 
+    async def _decide_deepseek(self, snapshot: str, history: List[Dict]) -> Dict[str, Any]:
+        from app.core.config import settings
         import asyncio, httpx
         headers = {
             "Authorization": f"Bearer {settings.deepseek_api_key}",
