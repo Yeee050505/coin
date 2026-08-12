@@ -55,7 +55,7 @@
 
 | 挑战 | 具体问题 |
 |---|---|
-| **Agent 编排** | 6 个 Agent 存在数据依赖（搜索先于研究、财务先于图表），且流程在运行时才确定 |
+| **Agent 编排** | 6 个 worker Agent 存在数据依赖（搜索先于研究、财务先于图表），且流程在运行时才确定 |
 | **动态调度** | 固定 DAG 无法满足"运行时决定谁先谁后、要不要再搜一轮"的自主协作诉求 |
 | **质量可控** | LLM 可能输出幻觉或遗漏，如何自动检测并驱动重写收敛 |
 | **数据工程** | 金融 API 反爬 + 频率限制；MySQL JSON 列无法存 numpy/pandas 类型 |
@@ -146,6 +146,9 @@ backend/
   agent_core/
     scheduler_agent/graph_builder.py   — LangGraph 状态图（Supervisor 编排核心）
     sub_agents/                        — supervisor 主控 + 6 个 worker Agent
+      supervisor_agent.py              — 主控：decide() 决策 + worker 工具定义
+      chief_architect.py / deep_scout.py / data_engineer.py
+      data_analyst.py / chief_researcher.py / critic_master.py
   app/
     api/                               — REST 接口（projects / reports / dashboard）
     tools/                             — AKShare 封装 + 工具注册（7 个工具）
@@ -161,7 +164,7 @@ frontend/
 ## 运行
 
 ```bash
-# 后端（端口 8001，需 GPU 环境跑本地模型）
+# 后端（端口 8001，跑本地模型需 GPU 环境）
 cd backend
 pip install -r requirements.txt
 python -m uvicorn main:app --host 0.0.0.0 --port 8001
@@ -198,4 +201,5 @@ curl -X POST http://127.0.0.1:8001/api/projects \
 
 ## 文档
 
-- `issues.md` — 26 个问题记录与修复（含 Supervisor 改造全过程 P62-P66、压测量化）
+- `ARCHITECTURE.md` — 架构细节：调度机制、状态设计、压测量化（API/本地/Supervisor 三套数据）
+- `issues.md` — 26 个问题记录与修复（含 Supervisor 改造全过程 P62-P66）
