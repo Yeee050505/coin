@@ -10,7 +10,7 @@
 |---|---|---|
 | **前端** | React 18, TypeScript, Ant Design 5, Vite, Axios | SPA，轮询更新状态 |
 | **后端** | Python 3.13, FastAPI, SQLAlchemy 2.0, PyMySQL | REST API，端口 8001 |
-| **Agent 框架** | LangGraph 1.2.6 (`StateGraph`, `Send`, `conditional_edges`) | 有向图编排，支持并行 + 条件回滚 |
+| **Agent 框架** | LangGraph 1.2.6 (`StateGraph`) | Supervisor 主控循环：状态快照 + LLM 决策派遣 worker |
 | **LLM** | DeepSeek Chat API（`deepseek-chat`） via `httpx` | 直连 HTTP，规避 OpenAI SDK 编码问题 |
 | **数据源** | AKShare（东方财富/新浪/同花顺）, yfinance, Tavily 搜索 API | 多源竞争/故障转移模式 |
 | **数据库** | MySQL 8.0，JSON 列 | `research_projects`、`research_tasks` 表 |
@@ -27,31 +27,26 @@
             │ 1. 创建 ResearchProject 记录 (status=pending)
             │ 2. 启动 daemon threading.Thread
             ▼
-         ┌─ 守护线程 ──────────────────────────────┐
-         │  asyncio.new_event_loop()               │
-         │    └─ WorkflowGraph.run(project_id, req)│
-         │         │                               │
-         │    ┌────┴──────────────┐                │
-         │    │ LangGraph START   │                │
-         │    │    └─ parse       │                │
-         │    │         │         │                │
-         │    │    ┌────┴──────┐  │                │
-         │    │    │ Send × 3  │  │ 并行 fan-out  │
-         │    │    │ ┌─ chief_architect            │
-         │    │    │ ├─ deep_scout                 │
-         │    │    │ └─ chief_data_engineer         │
-         │    │    └────┬──────┘                   │
-         │    │         ▼ (fan-in 自动合并)         │
-         │    │    ┌────┴──────────────┐            │
-         │    │    │ data_analyst      │            │
-         │    │    │ chief_researcher  │            │
-         │    │    │ critic_master     │◄── 回滚 ─│
-         │    │    └────┬──────────────┘ (≤2 次)   │
-         │    │         ▼                           │
-         │    │    END                              │
-         │    └─────────────────────────────────────┤
-         │    保存最终报告到 DB + .md 文件           │
-         └─────────────────────────────────────────┘
+         ┌─ 守护线程 ─────────────────────────────────┐
+         │  asyncio.new_event_loop()                  │
+         │    └─ WorkflowGraph.run(project_id, req)   │
+         │         │                                  │
+         │    ┌────┴──────────────┐                   │
+         │    │ LangGraph START   │                   │
+         │    │    └─ parse       │                   │
+         │    │         │         │                   │
+         │    │    supervisor ◄───┤                   │
+         │    │   主控循环(≤8轮)  │ LLM 每轮决策       │
+         │    │   ├─ run_architect / run_scout        │
+         │    │   ├─ run_data_engineer / run_analyst  │
+         │    │   ├─ run_researcher ─┐                │
+         │    │   └─ run_critic ◄────┘ auto review    │
+         │    │         │ 追问: 反馈→重写→复查       │
+         │    │         ▼                             │
+         │    │    END                                │
+         │    └───────────────────────────────────────┤
+         │    保存最终报告到 DB + .md 文件            │
+         └────────────────────────────────────────────┘
             │
             ▼
          前端每 3 秒轮询 GET /api/projects/:id
@@ -60,34 +55,50 @@
 
 ## Agent 工作流
 
-### 阶段 1 — 并行（LangGraph `Send`）
+### Supervisor 主控模式（v2，替代固定 DAG）
 
-| Agent | 职责 | 输出 |
-|---|---|---|
-| **chief_architect** | LLM 生成研究大纲 | Markdown 章节结构 |
-| **deep_scout** | 多源网络搜索（function calling 自主决定搜索角度） | 搜索综合文本 |
-| **chief_data_engineer** | 通过 AKShare/yfinance 获取财务数据 + LLM 解读 | 精简财务分析 |
-
-三者通过 `Send("agent_name", state)` 并发执行，LangGraph 自动 fan-out 并在全部完成后 fan-in 到下一节点。
-
-### 阶段 2 — 串行（带条件边回滚）
-
-| 步骤 | Agent | 输入依赖 |
-|---|---|---|
-| 1 | **data_analyst** | 财务数据 → LLM 生成图表规格 → `run_chart_code` 工具渲染 SVG |
-| 2 | **chief_researcher** | 大纲 + 搜索综合 + 财务解读 → LLM 撰写完整报告 |
-| 3 | **critic_master** | 草稿报告 → LLM 评审 → `review_passed`/评分 |
-
-### 回滚流程
+图结构简化为 `START → parse → supervisor → END`。`supervisor` 节点内部跑受控编排循环（≤8 轮）：
 
 ```
-critic_master 条件边：
-  review_passed == true  → END
-  review_attempts ≤ 2    → 跳转到 chief_researcher（重新执行研究员 + 评论家）
-  review_attempts > 2    → END
+每轮：
+  1. 组装阶段状态快照（大纲/搜索/财务/图表/草稿/审查分数+反馈）
+  2. Supervisor LLM 决策：派遣哪个 worker（工具形式）或完成
+  3. 执行对应 worker（WorkerAgent 通过 _to/_from_research_state 桥接复用）
+  4. 快照反映新状态，LMM 基于此做下一轮决策
+  5. run_researcher 后自动触发 critic（保证审查闭环）
 ```
 
-与原始 asyncio 方案行为完全一致，但用 LangGraph `conditional_edges` 显式声明，无需手写 `while` 循环。
+| worker 工具 | 对应 Agent | 说明 |
+|---|---|---|
+| run_architect | chief_architect | 生成大纲 |
+| run_scout | deep_scout | 多角度搜索（内部 FC 自主定角度） |
+| run_data_engineer | chief_data_engineer | 拉财务数据 + 解读 |
+| run_analyst | data_analyst | 图表 |
+| run_researcher | chief_researcher | 写报告；args.instruction 携带修改要求 |
+| run_critic | critic_master | 审查；携带上次反馈复查 |
+
+### 多轮追问闭环
+
+```
+run_researcher ──► auto critic_master
+                        │ passed=False（带反馈）
+                        ▼
+supervisor 决策：run_researcher(instruction=critic反馈) ──► auto critic_master（复查上轮问题）
+                        │
+                        ▼
+                迭代直至 passed 或轮次耗尽（≤8 轮）
+```
+
+`critic_previous_feedback` 存入 intermediate，critic 复查时核对"上次问题是否修复"，使追问收敛（本地 3B 压测：加入阈值 score≥55 视为通过后，P66 首轮审查即通过）。
+
+### 可靠性防线（针对本地 3B 小模型）
+
+| 防线 | 行为 |
+|---|---|
+| **阶段门控** | 模型决策无效 / 乱 finish 时，自动按规范顺序（architect→scout→engineer→analyst→researcher）推进下一缺省阶段 |
+| **重复守卫** | 同一 worker 决策连续 ≥2 次 → 强制兜底流水线（auto critic 后重置计数，避免误伤合法追问） |
+| **兜底流水线** | 主控完全失效时顺序执行完整流程 + 一轮 feedback 修订 |
+| **critic 阈值** | score ≥ 55 视为通过（3B 评审过严会烧光轮次） |
 
 ### Agent 执行循环（`BaseAgent.run`）
 
@@ -127,25 +138,11 @@ START
   ▼
 parse — IntentParser.parse(request) → stock_codes
   │
-  ├──────────────────┬──────────────────┐
-  ▼                  ▼                  ▼
-chief_architect   deep_scout     chief_data_engineer
-(Send)            (Send)          (Send)
-  │                  │                  │
-  └──────────────────┴──────────────────┘
-  (fan-in — LangGraph 自动等待全部完成)
-  │
   ▼
-data_analyst  ← 依赖 financial_data（intermediate）
-  │
-  ▼
-chief_researcher  ← 依赖 outline + search_synthesis + financial_interpretation
-  │
-  ▼
-critic_master  ← 依赖 draft_report
-  │
-  ├─ review_passed? ──► END
-  └─ retry ──► chief_researcher (最多 2 次)
+supervisor（主控循环，≤8 轮）
+  │  每轮: _supervisor_snapshot(gs) → SupervisorAgent.decide(LLM)
+  │        → 派遣 worker（_node_agent 执行）→ 回填状态
+  │        run_researcher 后自动 run critic（携上次反馈复查）
   │
   ▼
 END → run() 设置 status = success/completed_with_issues
@@ -180,9 +177,9 @@ POST /api/projects
        │
        ├─ graph_builder.run()
        │   ├─ parse node (IntentParser)    ← 提取 stock_codes
-       │   ├─ Send × 3 ← LangGraph 并行    ← phase 1
-       │   ├─ data_analyst → researcher → critic  ← phase 2
-       │   ├─ 条件边回滚(≤2次)
+       │   ├─ supervisor 主控循环          ← LLM 动态编排 ≤8 轮
+       │   │    └─ 派遣 worker：architect / scout / engineer / analyst / researcher / critic
+       │   │    └─ researcher 后自动 critic，未通过带反馈重派（追问）
        │   └─ return result
        │
        ├─ status_db = get_session()        ← 新 session 写最终状态
@@ -201,12 +198,13 @@ POST /api/projects
 
 | Agent | 目的 | 核心能力 |
 |-------|------|----------|
+| **supervisor** | 主控编排，运行时决定派遣哪个 worker、顺序与轮次 | 状态快照 + LLM 决策循环（本地 ReAct JSON / DeepSeek 原生 tools），多轮追问驱动 |
 | **chief_architect** | 理解用户需求，制定研究框架和报告大纲 | LLM 生成 8 章结构，覆盖产品概况、业绩、持仓、策略、风险、持有人、对比、结论 |
 | **deep_scout** | 多源网络检索，收集行业动态和最新信息 | function calling 自主调用 web_search（DuckDuckGo） |
 | **chief_data_engineer** | 获取真实财务数据并做初步解读 | AKShare（3 源 failover）获取行情/财报/yfinance 国际数据，LLM 分析趋势 |
-| **data_analyst** | 数据可视化，生成图表 | LLM 生成 python 代码 → `run_chart_code` 工具 → matplotlib 渲染 SVG |
-| **chief_researcher** | 综合所有信息撰写完整深度研究报告 | LLM 融合 3 个 phase1 输出，生成 7000+ 字结构化报告 |
-| **critic_master** | 质量评审，控制是否回退重写 | LLM 评分 + review_passed 开关，触发 critic→researcher 回滚（最多 2 次） |
+| **data_analyst** | 数据可视化，生成图表 | LLM 生成图表规格 → `run_chart_code` 工具 → matplotlib 渲染 SVG |
+| **chief_researcher** | 综合所有信息撰写完整深度研究报告 | LLM 融合各 Agent 产出，支持 research_instruction 修改要求注入 |
+| **critic_master** | 质量评审，控制是否回退重写 | LLM 评分 + review_passed 开关 + 上次反馈复查（score≥55 视为通过） |
 
 ## 量化成果
 
@@ -250,6 +248,21 @@ POST /api/projects
 
 对比说明：本地 3B 模型推理速度约 25-35 token/s（RTX 4060 Laptop），Phase 2 研究员单次长文本生成为主要瓶颈（占总量 ~50%）。P61 在 6 Agent 全 success 后因机器定时关机被强杀，最终状态由 DB 数据恢复补写。
 
+### Supervisor 主控压测（P62-P66：本地 Qwen2.5-3B，依次修复过程）
+
+| 项目 | rounds | fallback | 审查 | 报告字数 | 说明 |
+|---|---|---|---|---|---|
+| P62 比亚迪 | — | ✅ | 2 次修订 | 5310 | 映射 bug 前旧代码，全兜底路径 |
+| P63 茅台 | — | ✅ | 2 次修订 | — | 同上 |
+| P64 腾讯 | 8 | ✅(守卫) | 3 次未过 | 3813 | 模型全自主决策（scout→engineer→architect→analyst→researcher），映射 bug 修复 |
+| P65 招行 | 8 | ❌ | 4 次未过 | 3823 | 守卫修复，追问循环跑满无兜底 |
+| P66 隆基绿能 | 6 | ❌ | ✅ 通过(75) | 7752 | critic 阈值(≥55)生效，首轮审查收敛 |
+
+结论：
+- 本地 3B 可完成**完整自主编排**（自主规划顺序、带反馈重派研究员）+ **多轮追问闭环**（critic 携上次反馈复查，P66 一次收敛）
+- 阶段门控 + 兜底流水线保证 100% 产出报告（5/5 success）
+- critic 严格度需阈值收敛，否则追问循环烧满 8 轮（P65 验证守卫不误伤但轮次仍耗尽）
+
 ## 文件映射
 
 ```
@@ -280,12 +293,13 @@ backend/
       graph_builder.py             — WorkflowGraph：LangGraph StateGraph 定义
       intent_parser.py             — 从用户请求中提取股票代码/分析维度
     sub_agents/
-      chief_architect.py           — 阶段 1：研究大纲（LLM）
-      deep_scout.py                — 阶段 1：网络搜索（function calling / DDGS）
-      data_engineer.py             — 阶段 1：AKShare/yfinance 数据 + LLM 分析
-      data_analyst.py              — 阶段 2：图表生成（LLM + matplotlib）
-      chief_researcher.py          — 阶段 2：完整报告撰写（LLM）
-      critic_master.py             — 阶段 2：质量评审 + 回滚决策（LLM）
+      supervisor_agent.py           — Supervisor 主控（decide() + worker 工具定义）
+      chief_architect.py            — worker：研究大纲（LLM）
+      deep_scout.py                 — worker：网络搜索（function calling / DDGS）
+      data_engineer.py              — worker：AKShare/yfinance 数据 + LLM 分析
+      data_analyst.py               — worker：图表生成（LLM + matplotlib）
+      chief_researcher.py           — worker：完整报告撰写（LLM）
+      critic_master.py              — worker：质量评审 + 追问反馈（LLM）
 frontend/
   src/
     App.tsx                        — 路由（单路由：/）
@@ -325,7 +339,15 @@ AKShare 是同步库（封装 `requests`）。直接在 asyncio 事件循环中�
 
 ### 为什么阶段 1 并行、阶段 2 串行
 
-阶段 1 的 Agent（架构师、侦察兵、数据工程师）彼此没有数据依赖——它们都只读取原始用户请求——因此可以通过 **Send** 并行运行。阶段 2 的 Agent 有严格的数据依赖：`data_analyst` 需要 `financial_data`，`chief_researcher` 需要所有阶段 1 的输出，`critic_master` 需要草稿报告。串行执行还能支持回滚循环（重新执行 `chief_researcher` → `critic_master`）。
+（v1 设计）阶段 1 的 Agent（架构师、侦察兵、数据工程师）彼此没有数据依赖——它们都只读取原始用户请求——因此可以通过 **Send** 并行运行。阶段 2 的 Agent 有严格的数据依赖：`data_analyst` 需要 `financial_data`，`chief_researcher` 需要所有阶段 1 的输出，`critic_master` 需要草稿报告。串行执行还能支持回滚循环（重新执行 `chief_researcher` → `critic_master`）。
+
+### 为什么升级为 Supervisor 主控（v2）
+
+固定 DAG 无法满足"运行时才知道流程"的多 Agent 诉求（issues #22/#24）。改为 Supervisor 模式后：
+- **动态编排** — 主控 LLM 每轮读取状态快照自主选择 worker，实测本地 3B 会自行规划完整顺序，无需写死边
+- **多轮追问** — researcher 自动送审，critic 携上次反馈复查，未通过由主控带 instruction 重派研究员，直至收敛
+- **保留可靠性** — 阶段门控 + 重复守卫 + 兜底流水线三道防线，小模型决策失效时自动降级，压测 5/5 成功
+- **代价** — 牺牲并行 fan-out（各阶段串行派遣），本地模式每轮决策 ~10s；API 模式可用并行 worker 回归优化
 
 ### 为什么需要 `_json_safe`
 

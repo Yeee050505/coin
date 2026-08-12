@@ -13,10 +13,12 @@ from agent_core.sub_agents.data_engineer import ChiefDataEngineer
 from agent_core.sub_agents.data_analyst import DataAnalyst
 from agent_core.sub_agents.chief_researcher import ChiefResearcher
 from agent_core.sub_agents.critic_master import CriticMaster
+from agent_core.sub_agents.supervisor_agent import SupervisorAgent, WORKER_BY_TOOL
 from agent_core.scheduler_agent.intent_parser import IntentParser
 
 logger = logging.getLogger(__name__)
-MAX_RETRIES = 2
+SUPERVISOR_MAX_ROUNDS = 8
+CANONICAL_ORDER = ["run_architect", "run_scout", "run_data_engineer", "run_analyst", "run_researcher"]
 
 
 def _json_safe(obj):
@@ -79,6 +81,7 @@ class GraphState(TypedDict):
 class WorkflowGraph:
     def __init__(self):
         self.agents = {
+            "supervisor": SupervisorAgent(),
             "chief_architect": ChiefArchitect(),
             "deep_scout": DeepScout(),
             "chief_data_engineer": ChiefDataEngineer(),
@@ -174,19 +177,165 @@ class WorkflowGraph:
         parsed = self.parser.parse(state.get("original_request", ""))
         return {"stock_codes": list(parsed.get("stock_codes", []))}
 
-    def _route_phase1(self, state: GraphState) -> List[Send]:
-        return [
-            Send("chief_architect", state),
-            Send("deep_scout", state),
-            Send("chief_data_engineer", state),
-        ]
+    def _supervisor_snapshot(self, gs: GraphState) -> str:
+        it = gs.get("intermediate") or {}
+        report = gs.get("final_report") or it.get("draft_report") or ""
+        search_n = len(it.get("raw_search_results") or [])
+        hint = ""
+        if report and not gs.get("review_passed"):
+            hint = "\n建议: 审查未通过，可带 instruction 重派 run_researcher 修改，再派 run_critic 复查。"
+        return "\n".join([
+            f"任务: {gs.get('original_request', '')}",
+            "当前阶段状态:",
+            f"- outline: {'已完成' if it.get('outline') else '未完成'}",
+            f"- search: {'已完成(%d条)' % search_n if it.get('search_synthesis') else '未完成'}",
+            f"- financial data: {'已完成' if it.get('financial_interpretation') else '未完成'}",
+            f"- charts: {'已完成' if it.get('analysis_charts') else '未完成'}",
+            f"- draft report: {'已完成(%d字)' % len(report) if report else '未完成'}",
+            f"- critic: score={gs.get('review_score')} passed={gs.get('review_passed')} feedback={str(gs.get('review_feedback') or '')[:200]}",
+            "下一步: 派遣一个需要的 worker（run_architect / run_scout / run_data_engineer / run_analyst / run_researcher / run_critic），或全部完成后回答完成。" + hint,
+        ])
 
-    def _route_review(self, state: GraphState) -> str:
-        if state.get("review_passed", False):
-            return "end"
-        if state.get("review_attempts", 0) <= MAX_RETRIES:
-            return "retry"
-        return "end"
+    def _next_missing_stage(self, gs: GraphState) -> str:
+        it = gs.get("intermediate") or {}
+        report = gs.get("final_report") or it.get("draft_report") or ""
+        if not it.get("outline"):
+            return "run_architect"
+        if not it.get("search_synthesis"):
+            return "run_scout"
+        if not it.get("financial_interpretation"):
+            return "run_data_engineer"
+        if not it.get("analysis_charts"):
+            return "run_analyst"
+        if not report:
+            return "run_researcher"
+        return "run_critic"
+
+    async def _node_supervisor(self, state: GraphState) -> dict:
+        gs: GraphState = dict(state)
+        gs["intermediate"] = dict(gs.get("intermediate") or {})
+        gs["agent_outputs"] = dict(gs.get("agent_outputs") or {})
+        supervisor = self.agents["supervisor"]
+        history: list = []
+        last_tool, repeats = "", 0
+        fallback = False
+        rounds = 0
+
+        for rounds in range(SUPERVISOR_MAX_ROUNDS):
+            if gs.get("review_passed") and gs.get("final_report"):
+                break
+            try:
+                decision = await supervisor.decide(self._supervisor_snapshot(gs), history)
+            except Exception as e:
+                logger.warning(f"[supervisor] decide error at round {rounds}: {e}")
+                decision = {"type": "invalid", "raw": ""}
+
+            if decision["type"] == "finish":
+                if gs.get("final_report") or gs["intermediate"].get("draft_report"):
+                    logger.info(f"[supervisor] finished at round {rounds + 1}")
+                    break
+                decision = {"type": "invalid", "raw": "finished before report"}
+
+            tool = decision.get("tool", "")
+            if tool == "run_critic" and not (gs.get("final_report") or gs["intermediate"].get("draft_report")):
+                tool = "run_researcher"
+            if tool not in WORKER_BY_TOOL:
+                if decision["type"] == "invalid" and not (gs.get("final_report") or gs["intermediate"].get("draft_report")):
+                    tool = self._next_missing_stage(gs)
+                    logger.info(f"[supervisor] round {rounds + 1} auto-gated to {tool}")
+                else:
+                    history.append({"role": "user", "content": f"无效决策: {str(decision)[:200]}。请只派遣一个 worker。"})
+                    history = history[-6:]
+                    continue
+
+            logger.info(f"[supervisor] round {rounds + 1} decision: {str(decision)[:300]}")
+            if tool == "run_critic" and not (gs.get("final_report") or gs["intermediate"].get("draft_report")):
+                tool = "run_researcher"
+            if tool not in WORKER_BY_TOOL:
+                history.append({"role": "user", "content": f"无效决策: {str(decision)[:200]}。请只派遣一个 worker。"})
+                history = history[-6:]
+                continue
+
+            if tool == last_tool:
+                repeats += 1
+            else:
+                last_tool, repeats = tool, 1
+            if repeats >= 2:
+                logger.warning(f"[supervisor] tool {tool} repeated {repeats} times, fallback pipeline")
+                fallback = True
+                break
+
+            if tool == "run_researcher":
+                instruction = str((decision.get("args") or {}).get("instruction") or "").strip()
+                if instruction:
+                    gs["intermediate"]["research_instruction"] = instruction
+                else:
+                    gs["intermediate"].pop("research_instruction", None)
+
+            worker = WORKER_BY_TOOL[tool]
+            try:
+                update = await self._node_agent(gs, worker)
+            except Exception as e:
+                logger.error(f"[supervisor] worker {worker} failed: {e}")
+                history.append({"role": "user", "content": f"{tool} 执行失败: {str(e)[:200]}"})
+                history = history[-6:]
+                continue
+            gs.update(update)
+            gs["intermediate"] = dict(gs["intermediate"] or {})
+            gs["agent_outputs"] = dict(gs["agent_outputs"] or {})
+            logger.info(f"[supervisor] round {rounds + 1}: dispatched {tool}")
+            history.append({"role": "user", "content": f"{tool} 已完成"})
+            history = history[-6:]
+
+            if tool == "run_researcher":
+                upd = await self._node_agent(gs, "critic_master")
+                gs.update(upd)
+                gs["intermediate"] = dict(gs["intermediate"] or {})
+                gs["agent_outputs"] = dict(gs["agent_outputs"] or {})
+                if gs.get("review_feedback"):
+                    gs["intermediate"]["critic_previous_feedback"] = gs["review_feedback"]
+                last_tool, repeats = "", 0
+                logger.info(f"[supervisor] auto critic after researcher, passed={gs.get('review_passed')}")
+
+        if not (gs.get("final_report") or gs["intermediate"].get("draft_report")):
+            logger.warning("[supervisor] no report produced, fallback pipeline")
+            fallback = True
+            gs = await self._run_fallback_pipeline(gs)
+
+        await self._save_task("supervisor", {
+            "rounds": rounds + 1,
+            "fallback": fallback,
+            "review_passed": bool(gs.get("review_passed")),
+            "review_score": gs.get("review_score"),
+            "review_attempts": gs.get("review_attempts", 0),
+            "report_chars": len(gs.get("final_report") or ""),
+        }, "success")
+
+        return {k: gs[k] for k in ("intermediate", "agent_outputs", "final_report",
+                                   "review_passed", "review_feedback", "review_score", "review_attempts")
+                if k in gs}
+
+    async def _run_fallback_pipeline(self, gs: GraphState) -> GraphState:
+        it = gs.get("intermediate") or {}
+        if not it.get("outline"):
+            gs.update(await self._node_agent(gs, "chief_architect"))
+        if not it.get("search_synthesis"):
+            gs.update(await self._node_agent(gs, "deep_scout"))
+        if not it.get("financial_interpretation"):
+            gs.update(await self._node_agent(gs, "chief_data_engineer"))
+        if not it.get("analysis_charts"):
+            gs.update(await self._node_agent(gs, "data_analyst"))
+        if not gs.get("final_report"):
+            gs.update(await self._node_agent(gs, "chief_researcher"))
+        if not gs.get("review_passed"):
+            gs.update(await self._node_agent(gs, "critic_master"))
+            if not gs.get("review_passed") and gs.get("final_report"):
+                gs["intermediate"] = dict(gs.get("intermediate") or {})
+                gs["intermediate"]["research_instruction"] = str(gs.get("review_feedback") or "")[:1000]
+                gs["intermediate"]["critic_previous_feedback"] = str(gs.get("review_feedback") or "")[:1000]
+                gs.update(await self._node_agent(gs, "chief_researcher"))
+                gs.update(await self._node_agent(gs, "critic_master"))
+        return gs
 
     def _make_agent_node(self, name: str):
         async def node(state: GraphState) -> dict:
@@ -196,22 +345,11 @@ class WorkflowGraph:
 
     def _build_graph(self):
         builder = StateGraph(GraphState)
-
         builder.add_node("parse", self._node_parse)
-        for name in ("chief_architect", "deep_scout", "chief_data_engineer",
-                      "data_analyst", "chief_researcher", "critic_master"):
-            builder.add_node(name, self._make_agent_node(name))
-
+        builder.add_node("supervisor", self._node_supervisor)
         builder.add_edge(START, "parse")
-        builder.add_conditional_edges("parse", self._route_phase1)
-        builder.add_edge(["chief_architect", "deep_scout", "chief_data_engineer"], "data_analyst")
-        builder.add_edge("data_analyst", "chief_researcher")
-        builder.add_edge("chief_researcher", "critic_master")
-        builder.add_conditional_edges("critic_master", self._route_review, {
-            "end": END,
-            "retry": "chief_researcher",
-        })
-
+        builder.add_edge("parse", "supervisor")
+        builder.add_edge("supervisor", END)
         return builder.compile()
 
     async def run(self, project_id: int, request_text: str, db_session=None) -> Dict[str, Any]:

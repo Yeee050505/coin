@@ -353,6 +353,8 @@ MySQL JSON 列（`ResearchTask.output_data`）无法序列化 numpy 类型（`nu
 
 ## 22. Agent 无多轮迭代能力
 
+**状态：** ✅ 已实现（Supervisor 级多轮追问，见 #26）
+
 **现象：** 每个 Agent 的 `execute()` 跑一次就结束，无法对自己的产出做自我评估和修正。唯一的多轮是 `critic → researcher` 那一条回退边，但也只是重新跑一遍 researcher，不是 Agent 内部的迭代。
 
 **根因：** `BaseAgent.execute()` 设计成单次调用，没有 while 循环/自评机制。`reflect()` 方法是空骨架，从未被调用。
@@ -397,6 +399,8 @@ MySQL JSON 列（`ResearchTask.output_data`）无法序列化 numpy 类型（`nu
 ---
 
 ## 24. DAG 编译时固定，Agent 间无法主动对话
+
+**状态：** ✅ 已修复（Supervisor 动态编排，见 #26）
 
 **现象：** Agent 只能通过 `intermediate dict` 被动读写数据，没有能力主动发送消息给另一个 Agent。图结构在 `_build_graph()` 里用 `add_edge` 一次性定死，运行时不能动态增加交互。
 
@@ -445,3 +449,40 @@ MySQL JSON 列（`ResearchTask.output_data`）无法序列化 numpy 类型（`nu
 - `backend/app/api/projects.py`
 - `backend/.env`
 - `backend/requirements.txt`（无新增依赖，transformers+torch 已在环境）
+
+---
+
+## 26. 多 Agent 化改造 — Supervisor 主控动态编排 + 多轮追问
+
+**背景：** 用户明确要求"真·多 Agent"（从固定 DAG 流水线升级为 Supervisor 模式），并加多轮追问。选定 LangGraph 官方 Supervisor 模式：新增主控 Agent，现有 6 个 worker Agent 封装为可调用工具，由主控 LLM 在运行时自主决定派遣谁、什么顺序、几轮。
+
+**实施：**
+- 新增 `backend/agent_core/sub_agents/supervisor_agent.py`：`SupervisorAgent(BaseAgent)` + `decide()`（provider 分支：本地 Qwen 走 ReAct JSON 协议，DeepSeek 走原生 tools），6 个 worker 工具定义（run_architect / run_scout / run_data_engineer / run_analyst / run_researcher / run_critic）
+- `graph_builder.py` 重写：图简化为 `START → parse → supervisor → END`；`_node_supervisor` 内部循环（≤8 轮），每轮把"阶段状态快照"（大纲/搜索/财务/图表/草稿/审查分数反馈）给主控，执行其选中的 worker 后回填状态
+- **多轮追问闭环**：run_researcher 执行后自动触发 critic；critic 未通过 → 快照带反馈 → 主控可带 `instruction`（critic 反馈）重派 run_researcher，critic 携带 `critic_previous_feedback` 复查上一轮问题是否修复（追问记忆），迭代直到通过或轮次耗尽
+- `chief_researcher` 支持 `research_instruction` 注入；`critic_master` 支持上次反馈复查
+- **防线（针对本地 3B 小模型可靠性）**：① 阶段门控—模型决策无效/乱 finish 时自动按规范顺序推进下一缺省阶段；② 重复守卫—同一 worker 连续 ≥2 次强制兜底；③ 兜底流水线—主控完全失效时顺序跑完整流程 + 一轮反馈修订；④ critic 阈值—score≥55 视为通过（3B 评审过严会烧光轮次）
+- supervisor 自身结果落库 ResearchTask（rounds / fallback / review 信息）
+
+**踩坑记录：**
+1. `WORKER_BY_TOOL` 映射错误（run_scout→scout，实际 agent 是 deep_scout）→ KeyError 后强制兜底；模型决策本身是对的
+2. 重复守卫误伤合法追问：researcher→(auto critic)→researcher 被判定"连续重复"→ 修正：auto critic 后重置 last_tool/repeats
+3. 3B 首轮直接答 `{"answer": ...}`（finish）不派 worker → 阶段门控兜住
+
+**压测（本地 Qwen2.5-3B，依次修复过程）：**
+
+| 项目 | 结果 | round | fallback | review | 说明 |
+|---|---|---|---|---|---|
+| P62 比亚迪 | success | — | ✅ | 2 次修订 | 映射 bug 前的老代码，全兜底路径 |
+| P63 茅台 | success | — | ✅ | 2 次修订 | 同上 |
+| P64 腾讯 | success | 8 | ✅(守卫触发) | 3 次未过 | 模型全自主决策（scout→engineer→architect→analyst→researcher） |
+| P65 招行 | success | 8 | ❌ | 4 次未过 | 守卫修复后追问循环跑满，无兜底 |
+| P66 隆基绿能 | success | 6 | ❌ | ✅通过(75分) | 阈值生效，1 次评审即收敛，报告 7752 字 |
+
+**结论：** 本地 3B 可实现完整自主编排（自动规划顺序、带反馈重派研究员），配合阶段门控 + 兜底流水线可保证 100% 产出报告；critic 严格度需阈值收敛，否则追问循环会烧满轮次。
+
+**涉及文件：**
+- `backend/agent_core/sub_agents/supervisor_agent.py`（新增）
+- `backend/agent_core/scheduler_agent/graph_builder.py`
+- `backend/agent_core/sub_agents/chief_researcher.py`
+- `backend/agent_core/sub_agents/critic_master.py`

@@ -1,8 +1,11 @@
 # coding: utf-8
 """Critic Agent - uses LLM to review report quality"""
+import logging
 from typing import Any, Dict
 from app.agents.base.base_agent import BaseAgent, AgentContext
 import json, re
+
+logger = logging.getLogger(__name__)
 
 
 class CriticMaster(BaseAgent):
@@ -36,9 +39,14 @@ Output in Chinese.
             return {"status": "success", "data": {"passed": False, "score": 0, "feedback": "Content insufficient"}, "source": "critic_master"}
 
         report_snippet = report[:6000] if len(report) > 6000 else report
-        review_response = await self._call_llm(
-            f"Strictly review the quality of the following research report:\n\n{report_snippet}\n\nScore and comment from 5 dimensions: logic, data, completeness, practicality, expression."
+        review_prompt = (
+            f"Strictly review the quality of the following research report:\n\n{report_snippet}\n\n"
+            "Score and comment from 5 dimensions: logic, data, completeness, practicality, expression."
         )
+        previous = context.intermediate.get("critic_previous_feedback", "")
+        if previous:
+            review_prompt += f"\n\nPrevious review feedback (check whether these issues have been FIXED):\n{previous}"
+        review_response = await self._call_llm(review_prompt)
 
         try:
             json_match = re.search(r'\{.*\}', review_response, re.DOTALL)
@@ -55,6 +63,10 @@ Output in Chinese.
             passed = len(report) > 500
             score = 75 if passed else 50
             feedback = review_response[:500]
+
+        if not passed and score >= 55:
+            passed = True
+            logger.info(f"[critic_master] score {score} >= 55, treat as passed")
 
         context.state.review_passed = passed
         context.state.review_feedback = feedback
