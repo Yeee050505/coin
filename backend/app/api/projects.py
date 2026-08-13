@@ -8,7 +8,7 @@ import asyncio
 from sqlalchemy.orm import Session
 from app.models import get_db
 from app.models.database import ResearchProject, ResearchTask
-from app.schemas.common import ResearchRequest, ProjectResponse, ProjectDetail, TaskResponse
+from app.schemas.common import ResearchRequest, FollowupRequest, ProjectResponse, ProjectDetail, TaskResponse
 
 logger = logging.getLogger(__name__)
 _background_tasks: set = set()
@@ -85,6 +85,52 @@ async def create_project(req: ResearchRequest, db: Session = Depends(get_db)):
     _t = threading.Thread(target=run_workflow_sync, daemon=True)
     _t.start()
     return {"project_id": project_id, "message": "任务已创建，正在调度Agent执行"}
+
+
+@router.post("/{project_id}/followup", response_model=dict)
+async def followup_project(project_id: int, req: FollowupRequest, db: Session = Depends(get_db)):
+    project = db.query(ResearchProject).filter(ResearchProject.id == project_id).first()
+    if not project:
+        return {"error": "项目不存在"}
+    question = req.question.strip()
+    if not question:
+        return {"error": "追问内容不能为空"}
+
+    def run_followup_sync():
+        import asyncio, os, traceback
+        from app.models import get_session
+        try:
+            local_db = get_session()
+            try:
+                from agent_core.scheduler_agent.graph_builder import WorkflowGraph
+                builder = WorkflowGraph()
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                coro = builder.run_followup(project_id, question, db_session=local_db)
+                result = loop.run_until_complete(asyncio.wait_for(coro, timeout=3600))
+                loop.close()
+                answer = result.get("final_report", "")
+                fk = result.get("followup_key", "followup_1")
+                if answer:
+                    reports_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "reports")
+                    os.makedirs(reports_dir, exist_ok=True)
+                    file_path = os.path.join(reports_dir, f"report_{project_id}_{fk}.md")
+                    with open(file_path, "w", encoding="utf-8") as f:
+                        f.write(answer)
+                    logger.info(f"followup {fk} complete for project {project_id}, file={file_path}")
+            except asyncio.TimeoutError:
+                logger.error(f"followup timeout for project {project_id}")
+            except Exception as e:
+                logger.error(f"followup error for project {project_id}: {e}\n{traceback.format_exc()}")
+            finally:
+                local_db.close()
+        except Exception as e:
+            logger.error(f"followup session init error {project_id}: {e}\n{traceback.format_exc()}")
+
+    import threading
+    _t = threading.Thread(target=run_followup_sync, daemon=True)
+    _t.start()
+    return {"project_id": project_id, "message": "追问已提交，正在调度Agent执行"}
 
 
 @router.get("", response_model=list[ProjectResponse])

@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 SUPERVISOR_MAX_ROUNDS = 8
 CANONICAL_ORDER = ["run_architect", "run_scout", "run_data_engineer", "run_analyst", "run_researcher"]
 REVIEW_ESCALATE_AFTER = 2
+CONV_WINDOW = 4
 
 
 def _json_safe(obj):
@@ -185,8 +186,17 @@ class WorkflowGraph:
         hint = ""
         if report and not gs.get("review_passed"):
             hint = "\n建议: 审查未通过，可带 instruction 重派 run_researcher 修改，再派 run_critic 复查。"
+        followup = it.get("followup_question", "")
+        task_line = gs.get("original_request", "")
+        if followup:
+            task_line += f"（追问）{str(followup)[:80]}"
+        conv_text = ""
+        conv = it.get("conversation_window") or []
+        if conv:
+            conv_lines = [f"- 第{i}轮 Q: {str(t['q'])[:50]} / A: {str(t['a'])[:80]}" for i, t in enumerate(conv, 1)]
+            conv_text = "最近多轮对话（仅作上下文参考，勿重复已回答内容）:\n" + "\n".join(conv_lines)
         return "\n".join([
-            f"任务: {gs.get('original_request', '')}",
+            f"任务: {task_line}",
             "当前阶段状态:",
             f"- outline: {'已完成' if it.get('outline') else '未完成'}",
             f"- search: {'已完成(%d条)' % search_n if it.get('search_synthesis') else '未完成'}",
@@ -195,7 +205,7 @@ class WorkflowGraph:
             f"- draft report: {'已完成(%d字)' % len(report) if report else '未完成'}",
             f"- critic: score={gs.get('review_score')} passed={gs.get('review_passed')} feedback={str(gs.get('review_feedback') or '')[:200]}",
             "下一步: 派遣一个需要的 worker（run_architect / run_scout / run_data_engineer / run_analyst / run_researcher / run_critic），或全部完成后回答完成。" + hint,
-        ])
+        ]) + (("\n" + conv_text) if conv_text else "")
 
     def _next_missing_stage(self, gs: GraphState) -> str:
         it = gs.get("intermediate") or {}
@@ -363,6 +373,72 @@ class WorkflowGraph:
         builder.add_edge("parse", "supervisor")
         builder.add_edge("supervisor", END)
         return builder.compile()
+
+    async def run_followup(self, project_id: int, question: str, db_session=None) -> Dict[str, Any]:
+        """Q&A 式追问：不重生成报告，直接基于已有报告与最近对话回答用户问题。"""
+        self._db = db_session
+        self._pid = project_id
+
+        existing_report = ""
+        conv_turns = []
+        followup_index = 1
+        started = datetime.now(timezone.utc).isoformat()
+        if db_session:
+            p = db_session.query(ResearchProject).filter(ResearchProject.id == project_id).first()
+            if p and p.report_content:
+                existing_report = p.report_content
+            tasks = db_session.query(ResearchTask).filter(
+                ResearchTask.project_id == project_id
+            ).order_by(ResearchTask.created_at).all()
+            for t in tasks:
+                name = t.agent_name or ""
+                if name.startswith("followup_"):
+                    try:
+                        followup_index = max(followup_index, int(name.split("_")[1]))
+                    except (IndexError, ValueError):
+                        pass
+                    od = t.output_data or {}
+                    if isinstance(od, dict) and od.get("question"):
+                        conv_turns.append({"q": str(od["question"]), "a": str(od.get("answer") or "")[:400]})
+            followup_index += 1
+
+        conv_text = ""
+        if conv_turns:
+            conv_lines = [f"{i}. Q: {t['q']}\n   A: {t['a']}" for i, t in enumerate(conv_turns[-CONV_WINDOW:], 1)]
+            conv_text = "\n".join(conv_lines)
+
+        qa_system = (
+            "你是一名资深金融分析师助手。基于已有研报内容与上下文，直接回答用户的追问。"
+            "要求：以问答形式直接作答，简洁、结论明确；数据从已有报告中引用（不得编造），"
+            "需要时给出简短理由与风险提示。用中文、Markdown 列表/要点。不要重新生成整篇研报。"
+        )
+        qa_prompt = f"""## 用户追问
+{question}
+
+## 已有报告（节选）
+{existing_report[:4000] if existing_report else '（暂无）'}
+
+## 最近对话（参考，避免重复）
+{conv_text if conv_text else '（本轮为首个追问）'}
+
+请直接回答该追问，500~1500 字。"""
+        answer = await self.agents["supervisor"]._call_llm(
+            qa_prompt, system_override=qa_system, temperature=0.4, max_tokens=1536
+        )
+        if not answer.strip():
+            answer = "（未能生成有效回答）"
+
+        followup_key = f"followup_{followup_index}"
+        await self._save_task(followup_key, {
+            "mode": "qa",
+            "question": question,
+            "answer": answer,
+            "answer_chars": len(answer),
+            "started_at": started,
+        }, "success")
+        logger.info(f"[followup] Q&A {followup_key} done for project {project_id}, chars={len(answer)}")
+
+        return {"state": {}, "final_report": answer, "followup_key": followup_key}
 
     async def run(self, project_id: int, request_text: str, db_session=None) -> Dict[str, Any]:
         self._db = db_session

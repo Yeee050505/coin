@@ -520,3 +520,33 @@ MySQL JSON 列（`ResearchTask.output_data`）无法序列化 numpy 类型（`nu
 - `backend/agent_core/sub_agents/chief_researcher.py`
 - `backend/agent_core/sub_agents/critic_master.py`
 - `backend/agent_core/scheduler_agent/graph_builder.py`
+
+---
+
+## 28. 用户侧多轮追问（Q&A 模式）
+
+**背景：** 项目最初只有"创建 → 生成报告 → 查看"，用户无法对已有报告继续提问。多轮追问此前仅为系统内部 critic→researcher 闭环，用户侧"再问一句"能力缺失。
+
+**方案：Q&A 式追问，不重生成报告。**
+- 新增 `POST /api/projects/{id}/followup`（`FollowupRequest{question}`），后台线程执行，3600s 超时
+- `WorkflowGraph.run_followup`：加载原报告（截取 4000 字）+ 最近 N 轮对话，单次 LLM 调用直接作答（`max_tokens=1536`），不经过 supervisor 循环、不重出整篇报告
+- **会话隔离**：每轮追问独立 session，review/决策状态零残留
+- **滑动窗口**（不做长期记忆）：`CONV_WINDOW=4`，最近 4 轮 Q+回答摘要（各 400 字）注入主控快照上下文；窗口外自动遗忘
+- 每轮回答独立落库为 `followup_N` 任务行（`mode=qa`），前端详情弹窗"多轮追问"区逐轮展示 + 输入框提交，轮询自动刷新
+
+**前端：** `TaskManage.tsx` 详情弹窗增加"多轮追问"区块（历史 Q/A 卡片 + 提交框），`api.ts` 新增 `followupProject()`。
+
+**性能教训（首版踩坑）：** 追问最初复用完整报告流水线 —— researcher 带整份原报告（8000 字）+ 全部中间产物（≈2 万 token 上下文）在本地 3B 上单次生成 15~55 分钟，两次撞 3600s 超时。同时发现 Epic Games Launcher / EOSOverlay 等外部进程抢占 GPU 导致解码骤降。改 Q&A 模式后单轮 1~3 分钟完成。`_call_llm` 由此增加 `max_tokens` 参数（local→max_new_tokens，DS→max_tokens）。
+
+**联调记录（P67 爱尔眼科）：**
+- followup_2「分析爱尔眼科未来的分红能力和派息潜力」→ 995 字：引用原报告数据（营收 639 亿 +15%、成本率 97.8%、经营现金流 11.6 亿、每 10 股派 2.5 元、分红比例 31.25%），含理由与风险提示
+- followup_3「和通策医疗相比，爱尔眼科的估值是否更有优势？」→ 505 字：直接作答（规模/品牌/财务三要点 + 综述），未重复前轮内容 → 滑动窗口 + 会话隔离生效
+
+**涉及文件：**
+- `backend/app/api/projects.py`
+- `backend/agent_core/scheduler_agent/graph_builder.py`
+- `backend/app/agents/base/base_agent.py`
+- `backend/agent_core/sub_agents/chief_researcher.py`
+- `backend/app/schemas/common.py`
+- `frontend/src/services/api.ts`
+- `frontend/src/pages/TaskManage.tsx`

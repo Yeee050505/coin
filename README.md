@@ -43,6 +43,7 @@
 - **共享数据总线**：Agent 间通过 `intermediate` 字典间接通信（写方 `save_intermediate`，读方 `get`）
 - **可靠性防线**：阶段门控（决策无效自动按序推进）+ 重复守卫 + 固定顺序兜底流水线，小模型决策失效也能 100% 产出报告
 - **DeepSeek 双重兜底**：本地推理失败/空输出 → 自动重试 DS API；本地评审连续 2 次未通过 → 研究员+评审强制切 DS 重写再审（P67 实测升级后一次通过 72 分）
+- **用户侧多轮追问**：`POST /api/projects/{id}/followup` 逐轮对已有报告提问 —— 采用轻量 Q&A 模式直接作答（不重生成整篇报告）；会话隔离 + 最近 4 轮滑动窗口上下文；每轮独立落库 `followup_N`，前端详情弹窗逐轮展示
 
 ---
 
@@ -199,9 +200,18 @@ curl -X POST http://127.0.0.1:8001/api/projects \
   -d '{"title":"宁德时代(300750)投资价值分析","description":"分析宁德时代的财务表现、行业地位与投资建议","scenario":"financial_research"}'
 ```
 
+### 对已有报告追问（Q&A 多轮）
+
+```bash
+curl -X POST http://127.0.0.1:8001/api/projects/67/followup \
+  -H "Content-Type: application/json" \
+  -d '{"question":"爱尔眼科未来的分红能力和派息潜力如何？"}'
+# 回答落库为 followup_N 任务行，GET /api/projects/67 的 tasks 中可见
+```
+
 ---
 
 ## 文档
 
 - `ARCHITECTURE.md` — 架构细节：调度机制、状态设计、压测量化（API/本地/Supervisor 三套数据）
-- `issues.md` — 26 个问题记录与修复（含 Supervisor 改造全过程 P62-P66）
+- `issues.md` — 28 个问题记录与修复（含 Supervisor 改造全过程 P62-P66、DeepSeek 双重兜底 P67、用户侧 Q&A 追问 P67-followup）

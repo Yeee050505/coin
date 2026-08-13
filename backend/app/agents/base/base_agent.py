@@ -25,7 +25,7 @@ class BaseAgent(ABC):
         self.model_name = model_name
         self.system_prompt = system_prompt
     async def _call_llm(self, user_message: str, system_override: str = "", temperature: float = 0.7,
-                        provider_override: str = "") -> str:
+                        provider_override: str = "", max_tokens: int = 4096) -> str:
         """Calls LLM: local Qwen (transformers) primary, DeepSeek API as fallback."""
         from app.core.config import settings
         provider = provider_override or settings.llm_provider
@@ -37,18 +37,19 @@ class BaseAgent(ABC):
                 if system:
                     messages.append({"role": "system", "content": system})
                 messages.append({"role": "user", "content": user_message})
-                result = await generate(messages, temperature=temperature)
+                result = await generate(messages, temperature=temperature, max_new_tokens=max_tokens)
                 if result.strip():
                     return result
                 logger.warning(f"[{self.name}] local model returned empty, falling back to DeepSeek")
             except Exception as e:
                 logger.warning(f"[{self.name}] local model failed, falling back to DeepSeek: {e}")
             if settings.deepseek_api_key:
-                return await self._call_llm_deepseek(user_message, system_override, temperature)
+                return await self._call_llm_deepseek(user_message, system_override, temperature, max_tokens)
             raise
-        return await self._call_llm_deepseek(user_message, system_override, temperature)
+        return await self._call_llm_deepseek(user_message, system_override, temperature, max_tokens)
 
-    async def _call_llm_deepseek(self, user_message: str, system_override: str = "", temperature: float = 0.7) -> str:
+    async def _call_llm_deepseek(self, user_message: str, system_override: str = "", temperature: float = 0.7,
+                                 max_tokens: int = 4096) -> str:
         import asyncio, httpx
         system = system_override or self.system_prompt
         if system:
@@ -59,7 +60,7 @@ class BaseAgent(ABC):
             "model": self.model_name,
             "messages": [{"role": "user", "content": final_prompt}],
             "temperature": temperature,
-            "max_tokens": 4096,
+            "max_tokens": max_tokens,
         }
         headers = {
             "Authorization": f"Bearer {settings.deepseek_api_key}",

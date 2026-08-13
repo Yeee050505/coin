@@ -10,6 +10,10 @@ class ResearchRequest(BaseModel):
     output_format: str = Field("markdown", description="markdown / pdf / docx")
 
 
+class FollowupRequest(BaseModel):
+    question: str = Field(..., min_length=1, max_length=2000, description="Follow-up question on existing project")
+
+
 class ProjectResponse(BaseModel):
     id: int
     title: str

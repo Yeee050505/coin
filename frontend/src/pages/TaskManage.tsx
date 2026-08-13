@@ -7,9 +7,10 @@ import {
   PlusOutlined, ReloadOutlined, RobotOutlined, BarChartOutlined, FileTextOutlined,
   ThunderboltOutlined, DeleteOutlined, ExclamationCircleOutlined, DownloadOutlined,
   CheckCircleOutlined, CloseCircleOutlined, SyncOutlined, ClockCircleOutlined,
+  SendOutlined, MessageOutlined,
 } from '@ant-design/icons';
 import { getProjects, getProjectDetail, createProject, deleteProject, deleteProjects, downloadReport } from '../services/api';
-import { getReport } from '../services/api';
+import { getReport, followupProject } from '../services/api';
 
 const { Text, Title } = Typography;
 const { TextArea } = Input;
@@ -32,6 +33,9 @@ const TaskManage: React.FC = () => {
   const [report, setReport] = useState<any>(null);
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [reportLoading, setReportLoading] = useState(false);
+  const [followupQ, setFollowupQ] = useState('');
+  const [followupPolling, setFollowupPolling] = useState(false);
+  const [followupBase, setFollowupBase] = useState(0);
 
   const fetch = async () => {
     setLoading(true);
@@ -97,6 +101,34 @@ const TaskManage: React.FC = () => {
     }, 3000);
     return () => { clearInterval(timer); setPolling(false); };
   }, [polling, detail?.project?.id]);
+
+  useEffect(() => {
+    if (!followupPolling || !detail) return;
+    const pid = detail.project.id;
+    const timer = setInterval(async () => {
+      try {
+        const d = await getProjectDetail(pid);
+        setDetail(d);
+        const turns = (d.tasks || []).filter((t: any) => (t.agent_name || '').startsWith('followup_'));
+        if (turns.length > followupBase) {
+          setFollowupPolling(false);
+        }
+      } catch {}
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [followupPolling, detail?.project?.id, followupBase]);
+
+  const handleFollowup = async (p: any) => {
+    const q = followupQ.trim();
+    if (!q) return;
+    try {
+      await followupProject(p.id, q);
+      message.success('追问已提交，Agent 正在执行');
+      setFollowupQ('');
+      setFollowupBase((detail?.tasks || []).filter((t: any) => (t.agent_name || '').startsWith('followup_')).length);
+      setFollowupPolling(true);
+    } catch { message.error('提交失败'); }
+  };
 
   const handleBatchDelete = () => {
     if (selectedRowKeys.length === 0) return;
@@ -182,7 +214,7 @@ const TaskManage: React.FC = () => {
         </Form>
       </Modal>
 
-      <Modal title={<Space>{polling && <SyncOutlined spin style={{ color: '#1A7DFF' }} />}任务详情</Space>} open={detailOpen} onCancel={() => { setDetailOpen(false); setDetail(null); setPolling(false); }} footer={null} width={800}>
+      <Modal title={<Space>{polling && <SyncOutlined spin style={{ color: '#1A7DFF' }} />}任务详情</Space>} open={detailOpen} onCancel={() => { setDetailOpen(false); setDetail(null); setPolling(false); setFollowupPolling(false); setFollowupQ(''); }} footer={null} width={800}>
         <Spin spinning={detailLoading}>
           {detail && (
             <div>
@@ -226,11 +258,31 @@ const TaskManage: React.FC = () => {
                 </div>
               )}
               <Divider />
+              <Title level={5}><MessageOutlined style={{ marginRight: 8 }} />多轮追问</Title>
+              {(detail.tasks || []).filter((t: any) => (t.agent_name || '').startsWith('followup_')).map((t: any, i: number) => (
+                <div key={t.id} style={{ marginBottom: 12 }}>
+                  <Text strong style={{ color: '#1A7DFF' }}>追问 {i + 1}: {t.output_data?.question}</Text>
+                  <Card size="small" style={{ background: '#fafafa', maxHeight: 400, overflow: 'auto', marginTop: 4 }}>
+                    <div style={{ whiteSpace: 'pre-wrap', color: '#555' }}>{t.output_data?.answer || '(暂无内容)'}</div>
+                  </Card>
+                </div>
+              ))}
+              <Card size="small" style={{ background: '#f0f7ff' }}>
+                <Space direction="vertical" style={{ width: '100%' }} size={8}>
+                  <TextArea rows={2} placeholder="如：分析一下该公司未来的分红能力"
+                    value={followupQ} onChange={e => setFollowupQ(e.target.value)}
+                    disabled={followupPolling || detail.project.status === 'running' || detail.project.status === 'pending'} />
+                  <Button type="primary" icon={<SendOutlined />} loading={followupPolling}
+                    style={{ background: '#1A7DFF' }} block
+                    onClick={() => handleFollowup(detail.project)}>提交追问</Button>
+                </Space>
+              </Card>
+              <Divider />
               <Title level={5}>Agent 执行状态</Title>
               <Row gutter={[8, 8]} style={{ marginBottom: 16 }}>
                 {(() => {
                   const agentLabels: Record<string, string> = {
-                    chief_architect: '总架构师', deep_scout: '深度侦察', chief_data_engineer: '数据工程师',
+                    supervisor: '主控Agent', chief_architect: '总架构师', deep_scout: '深度侦察', chief_data_engineer: '数据工程师',
                     data_analyst: '数据分析师', chief_researcher: '首席研究', critic_master: '评论家',
                   };
                   return detail.agent_statuses.map((as: any, i: number) => {
