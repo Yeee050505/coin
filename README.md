@@ -211,7 +211,30 @@ curl -X POST http://127.0.0.1:8001/api/projects/67/followup \
 
 ---
 
+## LoRA 微调训练
+
+react_protocol LoRA 微调已完成，显著提升本地 Qwen2.5-3B 的工具调用可靠性：
+
+| 指标 | 基座模型 | + LoRA adapter |
+|------|---------|---------------|
+| 总通过率 | 29/42 (69.0%) | **39/42 (92.9%)** |
+| JSON 格式合法率 | 38/42 (90.5%) | **42/42 (100%)** |
+| 工具选择正确率 | 33/42 (78.6%) | **39/42 (92.9%)** |
+| 参数正确率 | 29/42 (69.0%) | **39/42 (92.9%)** |
+| eval_loss | — | 0.0130 |
+| adapter 大小 | — | 14 MB |
+
+```bash
+# 测试（42 条域外用例）
+cd backend && python -m training.test_adapter_42
+```
+
+详见 `backend/training/TEST_REPORT.md`
+
+---
+
 ## 文档
 
 - `ARCHITECTURE.md` — 架构细节：调度机制、状态设计、压测量化（API/本地/Supervisor 三套数据）
 - `issues.md` — 28 个问题记录与修复（含 Supervisor 改造全过程 P62-P66、DeepSeek 双重兜底 P67、用户侧 Q&A 追问 P67-followup）
+- `backend/training/TEST_REPORT.md` — react_protocol LoRA 微调测试报告

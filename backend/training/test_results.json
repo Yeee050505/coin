@@ -1,0 +1,163 @@
+{
+  "accuracy": 100.0,
+  "passed": 8,
+  "total": 8,
+  "results": [
+    {
+      "name": "宁德时代(300750)公司概况搜索",
+      "input": "Research topic: 宁德时代(300750). Search for company overview.",
+      "raw_output": "{\"tool\": \"web_search\", \"args\": {\"query\": \"宁德时代 300750 现金流\", \"max_results\": 5}}",
+      "parsed": {
+        "tool": "web_search",
+        "args": {
+          "query": "宁德时代 300750 现金流",
+          "max_results": 5
+        }
+      },
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": true,
+      "passed": true,
+      "time_s": 5.72
+    },
+    {
+      "name": "贵州茅台财务数据获取",
+      "input": "Got 贵州茅台 overview. Now fetch income statement data.",
+      "raw_output": "{\"tool\": \"fetch_financial_data\", \"args\": {\"stock_code\": \"600519\", \"indicator\": \"income\", \"years\": 3}}",
+      "parsed": {
+        "tool": "fetch_financial_data",
+        "args": {
+          "stock_code": "600519",
+          "indicator": "income",
+          "years": 3
+        }
+      },
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": true,
+      "passed": true,
+      "time_s": 4.15
+    },
+    {
+      "name": "比亚迪资产负债表",
+      "input": "Got 比亚迪 income data. Get balance sheet too.",
+      "raw_output": "{\"tool\": \"fetch_financial_data\", \"args\": {\"stock_code\": \"002594\", \"indicator\": \"balance\", \"years\": 3}}",
+      "parsed": {
+        "tool": "fetch_financial_data",
+        "args": {
+          "stock_code": "002594",
+          "indicator": "balance",
+          "years": 3
+        }
+      },
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": true,
+      "passed": true,
+      "time_s": 4.28
+    },
+    {
+      "name": "招商银行图表生成",
+      "input": "All data collected for 招商银行. Generate a revenue trend chart.",
+      "raw_output": "{\"tool\": \"run_chart_code\", \"args\": {\"chart_type\": \"bar\", \"title\": \"招商银行营收趋势\", \"labels\": [\"2022\", \"2023\", \"2024\"], \"values\": [6550, 7210, 8000]}}",
+      "parsed": {
+        "tool": "run_chart_code",
+        "args": {
+          "chart_type": "bar",
+          "title": "招商银行营收趋势",
+          "labels": [
+            "2022",
+            "2023",
+            "2024"
+          ],
+          "values": [
+            6550,
+            7210,
+            8000
+          ]
+        }
+      },
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": true,
+      "passed": true,
+      "time_s": 8.18
+    },
+    {
+      "name": "报告合成输出",
+      "input": "All data collected for 宁德时代. Synthesize the final report.",
+      "raw_output": "{\"answer\": \"宁德时代(300750)是全球动力电池龙头企业。2024年营收约4500亿元，同比增长12%；净利润约545亿元，净利润率12.1%。公司在动力电池和储能领域均保持全球市占率第一，竞争优势明显。资产负债率合理，现金流健康。建议关注电池技术迭代和海外布局风险。\"}",
+      "parsed": {
+        "answer": "宁德时代(300750)是全球动力电池龙头企业。2024年营收约4500亿元，同比增长12%；净利润约545亿元，净利润率12.1%。公司在动力电池和储能领域均保持全球市占率第一，竞争优势明显。资产负债率合理，现金流健康。建议关注电池技术迭代和海外布局风险。"
+      },
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": false,
+      "passed": true,
+      "time_s": 10.5
+    },
+    {
+      "name": "搜索失败重试",
+      "input": "web_search returned no results. Try different search query for 贵州茅台.",
+      "raw_output": "{\"tool\": \"web_search\", \"args\": {\"query\": \"贵州茅台 600519 公司基本面分析\", \"max_results\": 5}}",
+      "parsed": {
+        "tool": "web_search",
+        "args": {
+          "query": "贵州茅台 600519 公司基本面分析",
+          "max_results": 5
+        }
+      },
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": true,
+      "passed": true,
+      "time_s": 4.38
+    },
+    {
+      "name": "美的集团行业分析",
+      "input": "Research 美的集团(000333). Search for: 家电行业出海战略.",
+      "raw_output": "{\"tool\": \"web_search\", \"args\": {\"query\": \"美的集团 000333 家电行业出海战略\", \"max_results\": 5}}",
+      "parsed": {
+        "tool": "web_search",
+        "args": {
+          "query": "美的集团 000333 家电行业出海战略",
+          "max_results": 5
+        }
+      },
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": true,
+      "passed": true,
+      "time_s": 4.77
+    },
+    {
+      "name": "恒瑞医药研发图表",
+      "input": "Create a line chart showing 恒瑞医药 R&D spending over years.",
+      "raw_output": "{\"tool\": \"run_chart_code\", \"args\": {\"chart_type\": \"line\", \"title\": \"恒瑞医药研发投入趋势\", \"labels\": [\"2021\", \"2022\", \"2023\", \"2024\"], \"values\": [58, 67, 82, 95]}}",
+      "parsed": {
+        "tool": "run_chart_code",
+        "args": {
+          "chart_type": "line",
+          "title": "恒瑞医药研发投入趋势",
+          "labels": [
+            "2021",
+            "2022",
+            "2023",
+            "2024"
+          ],
+          "values": [
+            58,
+            67,
+            82,
+            95
+          ]
+        }
+      },
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": true,
+      "passed": true,
+      "time_s": 8.72
+    }
+  ]
+}

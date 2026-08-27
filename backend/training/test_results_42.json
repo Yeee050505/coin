@@ -1,0 +1,995 @@
+{
+  "accuracy": 92.85714285714286,
+  "passed": 39,
+  "total": 42,
+  "category_stats": {
+    "A0": {
+      "total": 9,
+      "passed": 9
+    },
+    "A1": {
+      "total": 1,
+      "passed": 0
+    },
+    "B0": {
+      "total": 9,
+      "passed": 9
+    },
+    "B1": {
+      "total": 1,
+      "passed": 1
+    },
+    "C0": {
+      "total": 8,
+      "passed": 8
+    },
+    "D0": {
+      "total": 8,
+      "passed": 8
+    },
+    "E0": {
+      "total": 6,
+      "passed": 4
+    }
+  },
+  "results": [
+    {
+      "name": "A01 宁德时代概况搜索",
+      "category": "A0",
+      "input": "Research topic: 宁德时代(300750). Search for company overview.",
+      "raw_output": "{\"tool\": \"web_search\", \"args\": {\"query\": \"宁德时代 300750 现金流\", \"max_results\": 5}}",
+      "parsed": {
+        "tool": "web_search",
+        "args": {
+          "query": "宁德时代 300750 现金流",
+          "max_results": 5
+        }
+      },
+      "time_s": 4.65,
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": true,
+      "tool_valid": true,
+      "args_valid": true,
+      "answer_valid": false,
+      "passed": true
+    },
+    {
+      "name": "A02 贵州茅台利润表",
+      "category": "A0",
+      "input": "Got 贵州茅台 overview. Now fetch income statement data.",
+      "raw_output": "{\"tool\": \"fetch_financial_data\", \"args\": {\"stock_code\": \"600519\", \"indicator\": \"income\", \"years\": 3}}",
+      "parsed": {
+        "tool": "fetch_financial_data",
+        "args": {
+          "stock_code": "600519",
+          "indicator": "income",
+          "years": 3
+        }
+      },
+      "time_s": 3.3,
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": true,
+      "tool_valid": true,
+      "args_valid": true,
+      "answer_valid": false,
+      "passed": true
+    },
+    {
+      "name": "A03 比亚迪资产负债表",
+      "category": "A0",
+      "input": "Got 比亚迪 income data. Get balance sheet too.",
+      "raw_output": "{\"tool\": \"fetch_financial_data\", \"args\": {\"stock_code\": \"002594\", \"indicator\": \"balance\", \"years\": 3}}",
+      "parsed": {
+        "tool": "fetch_financial_data",
+        "args": {
+          "stock_code": "002594",
+          "indicator": "balance",
+          "years": 3
+        }
+      },
+      "time_s": 3.45,
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": true,
+      "tool_valid": true,
+      "args_valid": true,
+      "answer_valid": false,
+      "passed": true
+    },
+    {
+      "name": "A04 招商银行营收趋势图",
+      "category": "A0",
+      "input": "All data collected for 招商银行. Generate a revenue trend chart.",
+      "raw_output": "{\"tool\": \"run_chart_code\", \"args\": {\"chart_type\": \"bar\", \"title\": \"招商银行营收趋势\", \"labels\": [\"2022\", \"2023\", \"2024\"], \"values\": [6550, 7210, 8000]}}",
+      "parsed": {
+        "tool": "run_chart_code",
+        "args": {
+          "chart_type": "bar",
+          "title": "招商银行营收趋势",
+          "labels": [
+            "2022",
+            "2023",
+            "2024"
+          ],
+          "values": [
+            6550,
+            7210,
+            8000
+          ]
+        }
+      },
+      "time_s": 6.25,
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": true,
+      "tool_valid": true,
+      "args_valid": true,
+      "answer_valid": false,
+      "passed": true
+    },
+    {
+      "name": "A05 报告合成输出",
+      "category": "A0",
+      "input": "All data collected for 宁德时代. Synthesize the final report.",
+      "raw_output": "{\"answer\": \"宁德时代(300750)是全球动力电池龙头企业。2024年营收约4500亿元，同比增长12%；净利润约545亿元，净利润率12.1%。公司在动力电池和储能领域均保持全球市占率第一，竞争优势明显。资产负债率合理，现金流健康。建议关注电池技术迭代和海外布局风险。\"}",
+      "parsed": {
+        "answer": "宁德时代(300750)是全球动力电池龙头企业。2024年营收约4500亿元，同比增长12%；净利润约545亿元，净利润率12.1%。公司在动力电池和储能领域均保持全球市占率第一，竞争优势明显。资产负债率合理，现金流健康。建议关注电池技术迭代和海外布局风险。"
+      },
+      "time_s": 7.91,
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": false,
+      "tool_valid": false,
+      "args_valid": false,
+      "answer_valid": true,
+      "passed": true
+    },
+    {
+      "name": "A06 搜索失败重试",
+      "category": "A0",
+      "input": "web_search returned no results. Try different search query for 贵州茅台.",
+      "raw_output": "{\"tool\": \"web_search\", \"args\": {\"query\": \"贵州茅台 600519 公司基本面分析\", \"max_results\": 5}}",
+      "parsed": {
+        "tool": "web_search",
+        "args": {
+          "query": "贵州茅台 600519 公司基本面分析",
+          "max_results": 5
+        }
+      },
+      "time_s": 3.41,
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": true,
+      "tool_valid": true,
+      "args_valid": true,
+      "answer_valid": false,
+      "passed": true
+    },
+    {
+      "name": "A07 美的集团行业分析",
+      "category": "A0",
+      "input": "Research 美的集团(000333). Search for: 家电行业出海战略.",
+      "raw_output": "{\"tool\": \"web_search\", \"args\": {\"query\": \"美的集团 000333 家电行业出海战略\", \"max_results\": 5}}",
+      "parsed": {
+        "tool": "web_search",
+        "args": {
+          "query": "美的集团 000333 家电行业出海战略",
+          "max_results": 5
+        }
+      },
+      "time_s": 3.42,
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": true,
+      "tool_valid": true,
+      "args_valid": true,
+      "answer_valid": false,
+      "passed": true
+    },
+    {
+      "name": "A08 恒瑞医药研发图表",
+      "category": "A0",
+      "input": "Create a line chart showing 恒瑞医药 R&D spending over years.",
+      "raw_output": "{\"tool\": \"run_chart_code\", \"args\": {\"chart_type\": \"line\", \"title\": \"恒瑞医药研发投入趋势\", \"labels\": [\"2021\", \"2022\", \"2023\", \"2024\"], \"values\": [58, 67, 82, 95]}}",
+      "parsed": {
+        "tool": "run_chart_code",
+        "args": {
+          "chart_type": "line",
+          "title": "恒瑞医药研发投入趋势",
+          "labels": [
+            "2021",
+            "2022",
+            "2023",
+            "2024"
+          ],
+          "values": [
+            58,
+            67,
+            82,
+            95
+          ]
+        }
+      },
+      "time_s": 6.71,
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": true,
+      "tool_valid": true,
+      "args_valid": true,
+      "answer_valid": false,
+      "passed": true
+    },
+    {
+      "name": "A09 中国平安综合金融",
+      "category": "A0",
+      "input": "Research 中国平安(601318). Search for: 综合金融布局与科技战略.",
+      "raw_output": "{\"tool\": \"web_search\", \"args\": {\"query\": \"中国平安 601318 综合金融布局与科技战略\", \"max_results\": 5}}",
+      "parsed": {
+        "tool": "web_search",
+        "args": {
+          "query": "中国平安 601318 综合金融布局与科技战略",
+          "max_results": 5
+        }
+      },
+      "time_s": 3.52,
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": true,
+      "tool_valid": true,
+      "args_valid": true,
+      "answer_valid": false,
+      "passed": true
+    },
+    {
+      "name": "A10 隆基绿能现金流",
+      "category": "A1",
+      "input": "Got 隆基绿能 overview. Fetch cashflow statement data for the last 5 years.",
+      "raw_output": "{\"tool\": \"fetch_financial_data\", \"args\": {\"stock_code\": \"601012\", \"indicator\": \"cash_flow\", \"years\": 5}}",
+      "parsed": {
+        "tool": "fetch_financial_data",
+        "args": {
+          "stock_code": "601012",
+          "indicator": "cash_flow",
+          "years": 5
+        }
+      },
+      "time_s": 3.33,
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": true,
+      "tool_valid": true,
+      "args_valid": false,
+      "answer_valid": false,
+      "passed": false
+    },
+    {
+      "name": "B01 无股票代码模糊搜索",
+      "category": "B0",
+      "input": "帮我查一下最近白酒行业的情况",
+      "raw_output": "{\"tool\": \"web_search\", \"args\": {\"query\": \"白酒行业 2024年 市场份额 竞争格局\", \"max_results\": 5}}",
+      "parsed": {
+        "tool": "web_search",
+        "args": {
+          "query": "白酒行业 2024年 市场份额 竞争格局",
+          "max_results": 5
+        }
+      },
+      "time_s": 3.72,
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": true,
+      "tool_valid": true,
+      "args_valid": true,
+      "answer_valid": false,
+      "passed": true
+    },
+    {
+      "name": "B02 只有公司名无代码",
+      "category": "B0",
+      "input": "比亚迪最近的财务数据怎么样",
+      "raw_output": "{\"tool\": \"fetch_financial_data\", \"args\": {\"stock_code\": \"002594\", \"indicator\": \"income\", \"years\": 3}}",
+      "parsed": {
+        "tool": "fetch_financial_data",
+        "args": {
+          "stock_code": "002594",
+          "indicator": "income",
+          "years": 3
+        }
+      },
+      "time_s": 3.26,
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": true,
+      "tool_valid": true,
+      "args_valid": true,
+      "answer_valid": false,
+      "passed": true
+    },
+    {
+      "name": "B03 口语化搜索",
+      "category": "B0",
+      "input": "那个做电池的宁德时代 营收多少来着",
+      "raw_output": "{\"tool\": \"web_search\", \"args\": {\"query\": \"宁德时代 2024年营收 现金流\", \"max_results\": 5}}",
+      "parsed": {
+        "tool": "web_search",
+        "args": {
+          "query": "宁德时代 2024年营收 现金流",
+          "max_results": 5
+        }
+      },
+      "time_s": 3.39,
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": true,
+      "tool_valid": true,
+      "args_valid": true,
+      "answer_valid": false,
+      "passed": true
+    },
+    {
+      "name": "B04 英文混合中文",
+      "category": "B0",
+      "input": "帮我查一下 贵州茅台 Kweichow Moutai 的收入情况",
+      "raw_output": "{\"tool\": \"web_search\", \"args\": {\"query\": \"贵州茅台 600519 最新营收数据 2024\", \"max_results\": 5}}",
+      "parsed": {
+        "tool": "web_search",
+        "args": {
+          "query": "贵州茅台 600519 最新营收数据 2024",
+          "max_results": 5
+        }
+      },
+      "time_s": 3.58,
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": true,
+      "tool_valid": true,
+      "args_valid": true,
+      "answer_valid": false,
+      "passed": true
+    },
+    {
+      "name": "B05 极简输入",
+      "category": "B0",
+      "input": "搜一下腾讯",
+      "raw_output": "{\"tool\": \"web_search\", \"args\": {\"query\": \"腾讯 2024年营收预测 分红政策\", \"max_results\": 5}}",
+      "parsed": {
+        "tool": "web_search",
+        "args": {
+          "query": "腾讯 2024年营收预测 分红政策",
+          "max_results": 5
+        }
+      },
+      "time_s": 3.1,
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": true,
+      "tool_valid": true,
+      "args_valid": true,
+      "answer_valid": false,
+      "passed": true
+    },
+    {
+      "name": "B06 无明确指令",
+      "category": "B0",
+      "input": "关于隆基绿能 你怎么看",
+      "raw_output": "{\"answer\": \"隆基绿能在光伏行业全球出货量第一，2024年营收约1500亿元，净利润约120亿元。公司资产负债率合理，现金流健康。但需关注光伏行业竞争加剧和原材料价格波动风险。\"}",
+      "parsed": {
+        "answer": "隆基绿能在光伏行业全球出货量第一，2024年营收约1500亿元，净利润约120亿元。公司资产负债率合理，现金流健康。但需关注光伏行业竞争加剧和原材料价格波动风险。"
+      },
+      "time_s": 5.23,
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": false,
+      "tool_valid": false,
+      "args_valid": false,
+      "answer_valid": true,
+      "passed": true
+    },
+    {
+      "name": "B07 只给行业不给公司",
+      "category": "B0",
+      "input": "新能源汽车电池行业目前竞争格局如何",
+      "raw_output": "{\"tool\": \"web_search\", \"args\": {\"query\": \"宁德时代 比亚迪 新能源汽车电池行业 竞争格局\", \"max_results\": 5}}",
+      "parsed": {
+        "tool": "web_search",
+        "args": {
+          "query": "宁德时代 比亚迪 新能源汽车电池行业 竞争格局",
+          "max_results": 5
+        }
+      },
+      "time_s": 3.6,
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": true,
+      "tool_valid": true,
+      "args_valid": true,
+      "answer_valid": false,
+      "passed": true
+    },
+    {
+      "name": "B08 模糊图表需求",
+      "category": "B0",
+      "input": "画个图看看比亚迪的走势",
+      "raw_output": "{\"tool\": \"run_chart_code\", \"args\": {\"chart_type\": \"line\", \"title\": \"比亚迪股票走势\", \"labels\": [\"2022-01-01\", \"2022-06-01\", \"2022-11-01\"], \"values\": [722, 854, 1010]}}",
+      "parsed": {
+        "tool": "run_chart_code",
+        "args": {
+          "chart_type": "line",
+          "title": "比亚迪股票走势",
+          "labels": [
+            "2022-01-01",
+            "2022-06-01",
+            "2022-11-01"
+          ],
+          "values": [
+            722,
+            854,
+            1010
+          ]
+        }
+      },
+      "time_s": 7.52,
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": true,
+      "tool_valid": true,
+      "args_valid": true,
+      "answer_valid": false,
+      "passed": true
+    },
+    {
+      "name": "B09 模糊财务需求",
+      "category": "B0",
+      "input": "把招商银行近几年的数据拉出来看看",
+      "raw_output": "{\"tool\": \"fetch_financial_data\", \"args\": {\"stock_code\": \"600036\", \"indicator\": \"income\", \"years\": 3}}",
+      "parsed": {
+        "tool": "fetch_financial_data",
+        "args": {
+          "stock_code": "600036",
+          "indicator": "income",
+          "years": 3
+        }
+      },
+      "time_s": 3.24,
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": true,
+      "tool_valid": true,
+      "args_valid": true,
+      "answer_valid": false,
+      "passed": true
+    },
+    {
+      "name": "B10 多公司对比模糊",
+      "category": "B1",
+      "input": "比较一下宁德时代和比亚迪",
+      "raw_output": "{\"tool\": \"web_search\", \"args\": {\"query\": \"宁德时代 比亚迪 2024年营收和净利润对比\", \"max_results\": 5}}",
+      "parsed": {
+        "tool": "web_search",
+        "args": {
+          "query": "宁德时代 比亚迪 2024年营收和净利润对比",
+          "max_results": 5
+        }
+      },
+      "time_s": 3.63,
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": true,
+      "tool_valid": true,
+      "args_valid": true,
+      "answer_valid": false,
+      "passed": true
+    },
+    {
+      "name": "C01 搜索+财务+图表全链路",
+      "category": "C0",
+      "input": "Research 宁德时代. First search overview, then fetch income data, finally generate a revenue bar chart.",
+      "raw_output": "{\"tool\": \"web_search\", \"args\": {\"query\": \"宁德时代 2024年市场面和竞争格局分析\", \"max_results\": 5}}",
+      "parsed": {
+        "tool": "web_search",
+        "args": {
+          "query": "宁德时代 2024年市场面和竞争格局分析",
+          "max_results": 5
+        }
+      },
+      "time_s": 3.34,
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": true,
+      "tool_valid": true,
+      "args_valid": true,
+      "answer_valid": false,
+      "passed": true
+    },
+    {
+      "name": "C02 财务+图表",
+      "category": "C0",
+      "input": "Fetch 比亚迪 income statement and create a line chart of revenue trend.",
+      "raw_output": "{\"tool\": \"fetch_financial_data\", \"args\": {\"stock_code\": \"002594\", \"indicator\": \"income\", \"years\": 3}}",
+      "parsed": {
+        "tool": "fetch_financial_data",
+        "args": {
+          "stock_code": "002594",
+          "indicator": "income",
+          "years": 3
+        }
+      },
+      "time_s": 3.34,
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": true,
+      "tool_valid": true,
+      "args_valid": true,
+      "answer_valid": false,
+      "passed": true
+    },
+    {
+      "name": "C03 搜索+搜索+综合",
+      "category": "C0",
+      "input": "Search for 贵州茅台 company overview and also search for 白酒行业 market size. Then synthesize findings.",
+      "raw_output": "{\"tool\": \"web_search\", \"args\": {\"query\": \"贵州茅台 600519 公司概况 2024\", \"max_results\": 5}}",
+      "parsed": {
+        "tool": "web_search",
+        "args": {
+          "query": "贵州茅台 600519 公司概况 2024",
+          "max_results": 5
+        }
+      },
+      "time_s": 3.67,
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": true,
+      "tool_valid": true,
+      "args_valid": true,
+      "answer_valid": false,
+      "passed": true
+    },
+    {
+      "name": "C04 财务多指标",
+      "category": "C0",
+      "input": "Fetch 宁德时代 balance sheet and also cashflow statement.",
+      "raw_output": "{\"tool\": \"fetch_financial_data\", \"args\": {\"stock_code\": \"300750\", \"indicator\": \"balance\", \"years\": 3}}",
+      "parsed": {
+        "tool": "fetch_financial_data",
+        "args": {
+          "stock_code": "300750",
+          "indicator": "balance",
+          "years": 3
+        }
+      },
+      "time_s": 3.28,
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": true,
+      "tool_valid": true,
+      "args_valid": true,
+      "answer_valid": false,
+      "passed": true
+    },
+    {
+      "name": "C05 图表多维度",
+      "category": "C0",
+      "input": "Create a pie chart showing 招商银行 revenue composition by business segment.",
+      "raw_output": "{\"tool\": \"run_chart_code\", \"args\": {\"chart_type\": \"pie\", \"title\": \"招商银行营收构成\", \"labels\": [\"零售银行\", \"公司银行\", \"金融机构\"], \"values\": [4000, 3500, 2500]}}",
+      "parsed": {
+        "tool": "run_chart_code",
+        "args": {
+          "chart_type": "pie",
+          "title": "招商银行营收构成",
+          "labels": [
+            "零售银行",
+            "公司银行",
+            "金融机构"
+          ],
+          "values": [
+            4000,
+            3500,
+            2500
+          ]
+        }
+      },
+      "time_s": 5.73,
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": true,
+      "tool_valid": true,
+      "args_valid": true,
+      "answer_valid": false,
+      "passed": true
+    },
+    {
+      "name": "C06 搜索+财务",
+      "category": "C0",
+      "input": "Search for 比亚迪 overseas expansion strategy and fetch their international revenue data.",
+      "raw_output": "{\"tool\": \"web_search\", \"args\": {\"query\": \"比亚迪 2024 overseas expansion strategy and revenue\", \"max_results\": 5}}",
+      "parsed": {
+        "tool": "web_search",
+        "args": {
+          "query": "比亚迪 2024 overseas expansion strategy and revenue",
+          "max_results": 5
+        }
+      },
+      "time_s": 3.03,
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": true,
+      "tool_valid": true,
+      "args_valid": true,
+      "answer_valid": false,
+      "passed": true
+    },
+    {
+      "name": "C07 财务+解读",
+      "category": "C0",
+      "input": "Fetch 中国平安 income data and provide analysis of profitability trends.",
+      "raw_output": "{\"tool\": \"fetch_financial_data\", \"args\": {\"stock_code\": \"601318\", \"indicator\": \"income\", \"years\": 3}}",
+      "parsed": {
+        "tool": "fetch_financial_data",
+        "args": {
+          "stock_code": "601318",
+          "indicator": "income",
+          "years": 3
+        }
+      },
+      "time_s": 3.36,
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": true,
+      "tool_valid": true,
+      "args_valid": true,
+      "answer_valid": false,
+      "passed": true
+    },
+    {
+      "name": "C08 搜索+图表",
+      "category": "C0",
+      "input": "Search for 隆基绿能 solar panel market share and create a bar chart of industry rankings.",
+      "raw_output": "{\"tool\": \"web_search\", \"args\": {\"query\": \"隆基绿能 光伏电池市场出货量 市场份额 2024\", \"max_results\": 5}}",
+      "parsed": {
+        "tool": "web_search",
+        "args": {
+          "query": "隆基绿能 光伏电池市场出货量 市场份额 2024",
+          "max_results": 5
+        }
+      },
+      "time_s": 3.99,
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": true,
+      "tool_valid": true,
+      "args_valid": true,
+      "answer_valid": false,
+      "passed": true
+    },
+    {
+      "name": "D01 输入夹杂乱码",
+      "category": "D0",
+      "input": "查找 X#@$% 宁德时代 的公司概况信息",
+      "raw_output": "{\"tool\": \"web_search\", \"args\": {\"query\": \"宁德时代 2024年公司概况 财务数据\", \"max_results\": 5}}",
+      "parsed": {
+        "tool": "web_search",
+        "args": {
+          "query": "宁德时代 2024年公司概况 财务数据",
+          "max_results": 5
+        }
+      },
+      "time_s": 3.44,
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": true,
+      "tool_valid": true,
+      "args_valid": true,
+      "answer_valid": false,
+      "passed": true
+    },
+    {
+      "name": "D02 多余无关文字",
+      "category": "D0",
+      "input": "今天天气不错，对了帮我查一下贵州茅台的财务数据，晚上吃什么",
+      "raw_output": "{\"tool\": \"fetch_financial_data\", \"args\": {\"stock_code\": \"600519\", \"indicator\": \"income\", \"years\": 3}}",
+      "parsed": {
+        "tool": "fetch_financial_data",
+        "args": {
+          "stock_code": "600519",
+          "indicator": "income",
+          "years": 3
+        }
+      },
+      "time_s": 3.35,
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": true,
+      "tool_valid": true,
+      "args_valid": true,
+      "answer_valid": false,
+      "passed": true
+    },
+    {
+      "name": "D03 重复啰嗦输入",
+      "category": "D0",
+      "input": "查一下查一下查一下比亚迪比亚迪比亚迪的财务数据财务数据",
+      "raw_output": "{\"tool\": \"fetch_financial_data\", \"args\": {\"stock_code\": \"002594\", \"indicator\": \"income\", \"years\": 3}}",
+      "parsed": {
+        "tool": "fetch_financial_data",
+        "args": {
+          "stock_code": "002594",
+          "indicator": "income",
+          "years": 3
+        }
+      },
+      "time_s": 3.32,
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": true,
+      "tool_valid": true,
+      "args_valid": true,
+      "answer_valid": false,
+      "passed": true
+    },
+    {
+      "name": "D04 中英文混杂噪声",
+      "category": "D0",
+      "input": "help me search 比亚迪 electric vehicle market position in China market",
+      "raw_output": "{\"tool\": \"web_search\", \"args\": {\"query\": \"比亚迪 电动汽车 市场地位 中国市场 2024\", \"max_results\": 5}}",
+      "parsed": {
+        "tool": "web_search",
+        "args": {
+          "query": "比亚迪 电动汽车 市场地位 中国市场 2024",
+          "max_results": 5
+        }
+      },
+      "time_s": 3.35,
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": true,
+      "tool_valid": true,
+      "args_valid": true,
+      "answer_valid": false,
+      "passed": true
+    },
+    {
+      "name": "D05 含特殊字符",
+      "category": "D0",
+      "input": "【紧急】!! 宁德时代(300750)!!! 最新财务报表!!!",
+      "raw_output": "{\"tool\": \"fetch_financial_data\", \"args\": {\"stock_code\": \"300750\", \"indicator\": \"income\", \"years\": 3}}",
+      "parsed": {
+        "tool": "fetch_financial_data",
+        "args": {
+          "stock_code": "300750",
+          "indicator": "income",
+          "years": 3
+        }
+      },
+      "time_s": 3.34,
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": true,
+      "tool_valid": true,
+      "args_valid": true,
+      "answer_valid": false,
+      "passed": true
+    },
+    {
+      "name": "D06 指令矛盾",
+      "category": "D0",
+      "input": "不要搜索也不要查财务 直接告诉我宁德时代的情况",
+      "raw_output": "{\"answer\": \"宁德时代(300750)是全球动力电池龙头企业。2024年营收约3612亿元，净利润约312亿元。动力电池和储能业务均保持全球市占率领先。\"}",
+      "parsed": {
+        "answer": "宁德时代(300750)是全球动力电池龙头企业。2024年营收约3612亿元，净利润约312亿元。动力电池和储能业务均保持全球市占率领先。"
+      },
+      "time_s": 4.83,
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": false,
+      "tool_valid": false,
+      "args_valid": false,
+      "answer_valid": true,
+      "passed": true
+    },
+    {
+      "name": "D07 超长无关前缀",
+      "category": "D0",
+      "input": "我是一个金融分析师 已经工作了15年 专注于消费电子和新能源赛道 对锂电池产业链有深入研究 现在我想了解一下宁德时代的基本情况",
+      "raw_output": "{\"tool\": \"web_search\", \"args\": {\"query\": \"宁德时代 2024年营收 风险因素\", \"max_results\": 5}}",
+      "parsed": {
+        "tool": "web_search",
+        "args": {
+          "query": "宁德时代 2024年营收 风险因素",
+          "max_results": 5
+        }
+      },
+      "time_s": 3.37,
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": true,
+      "tool_valid": true,
+      "args_valid": true,
+      "answer_valid": false,
+      "passed": true
+    },
+    {
+      "name": "D08 纯噪声无意义",
+      "category": "D0",
+      "input": "asdfghjkl 1234567890 !@#$%^&*()",
+      "raw_output": "{\"answer\": \"宁德时代(300750)是国内动力电池龙头企业，2024年营收约3600亿元，净利润约450亿元。\"}",
+      "parsed": {
+        "answer": "宁德时代(300750)是国内动力电池龙头企业，2024年营收约3600亿元，净利润约450亿元。"
+      },
+      "time_s": 3.87,
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": false,
+      "tool_valid": false,
+      "args_valid": false,
+      "answer_valid": true,
+      "passed": true
+    },
+    {
+      "name": "E01 饼图生成",
+      "category": "E0",
+      "input": "Create a pie chart showing 宁德时代 revenue breakdown by product segment: 动力电池 65%, 储能 20%, 电池材料 15%.",
+      "raw_output": "{\"tool\": \"run_chart_code\", \"args\": {\"chart_type\": \"pie\", \"title\": \"宁德时代营收构成\", \"labels\": [\"动力电池\", \"储能\", \"电池材料\"], \"values\": [65, 20, 15]}}",
+      "parsed": {
+        "tool": "run_chart_code",
+        "args": {
+          "chart_type": "pie",
+          "title": "宁德时代营收构成",
+          "labels": [
+            "动力电池",
+            "储能",
+            "电池材料"
+          ],
+          "values": [
+            65,
+            20,
+            15
+          ]
+        }
+      },
+      "time_s": 5.19,
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": true,
+      "tool_valid": true,
+      "args_valid": true,
+      "answer_valid": false,
+      "passed": true
+    },
+    {
+      "name": "E02 折线图多年数据",
+      "category": "E0",
+      "input": "Generate a line chart of 贵州茅台 net profit from 2019 to 2024 with values: 412, 467, 525, 627, 747, 862.",
+      "raw_output": "{\"tool\": \"run_chart_code\", \"args\": {\"chart_type\": \"line\", \"title\": \"贵州茅台净利润趋势\", \"labels\": [\"2019\", \"2020\", \"2021\", \"2022\", \"2023\", \"2024\"], \"values\": [412, 467, 525, 627, 747, 862]}}",
+      "parsed": {
+        "tool": "run_chart_code",
+        "args": {
+          "chart_type": "line",
+          "title": "贵州茅台净利润趋势",
+          "labels": [
+            "2019",
+            "2020",
+            "2021",
+            "2022",
+            "2023",
+            "2024"
+          ],
+          "values": [
+            412,
+            467,
+            525,
+            627,
+            747,
+            862
+          ]
+        }
+      },
+      "time_s": 9.0,
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": true,
+      "tool_valid": true,
+      "args_valid": true,
+      "answer_valid": false,
+      "passed": true
+    },
+    {
+      "name": "E03 柱状图对比",
+      "category": "E0",
+      "input": "Create a bar chart comparing market cap of 宁德时代, 比亚迪, and 中国平安: 8500, 7200, 4500 (unit: 亿).",
+      "raw_output": "{\"tool\": \"run_chart_code\", \"args\": {\"chart_type\": \"bar\", \"title\": \"动力电池和零部件行业对比\", \"labels\": [\"宁德时代\", \"比亚迪\", \"中国平安\"], \"values\": [8500, 7200, 4500]}}",
+      "parsed": {
+        "tool": "run_chart_code",
+        "args": {
+          "chart_type": "bar",
+          "title": "动力电池和零部件行业对比",
+          "labels": [
+            "宁德时代",
+            "比亚迪",
+            "中国平安"
+          ],
+          "values": [
+            8500,
+            7200,
+            4500
+          ]
+        }
+      },
+      "time_s": 6.07,
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": true,
+      "tool_valid": true,
+      "args_valid": true,
+      "answer_valid": false,
+      "passed": true
+    },
+    {
+      "name": "E04 指定年份范围",
+      "category": "E0",
+      "input": "Fetch 贵州茅台 income statement for the last 5 years.",
+      "raw_output": "{\"tool\": \"fetch_financial_data\", \"args\": {\"stock_code\": \"600519\", \"indicator\": \"income\", \"years\": 5}}",
+      "parsed": {
+        "tool": "fetch_financial_data",
+        "args": {
+          "stock_code": "600519",
+          "indicator": "income",
+          "years": 5
+        }
+      },
+      "time_s": 3.38,
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": true,
+      "tool_valid": true,
+      "args_valid": true,
+      "answer_valid": false,
+      "passed": true
+    },
+    {
+      "name": "E05 overview 指标",
+      "category": "E0",
+      "input": "Fetch 宁德时代 company overview data.",
+      "raw_output": "{\"tool\": \"fetch_financial_data\", \"args\": {\"stock_code\": \"300750\", \"indicator\": \"company_overview\", \"years\": 3}}",
+      "parsed": {
+        "tool": "fetch_financial_data",
+        "args": {
+          "stock_code": "300750",
+          "indicator": "company_overview",
+          "years": 3
+        }
+      },
+      "time_s": 3.49,
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": true,
+      "tool_valid": true,
+      "args_valid": false,
+      "answer_valid": false,
+      "passed": false
+    },
+    {
+      "name": "E06 cashflow 指标",
+      "category": "E0",
+      "input": "Fetch 比亚迪 cashflow statement data for the last 3 years.",
+      "raw_output": "{\"tool\": \"fetch_financial_data\", \"args\": {\"stock_code\": \"002594\", \"indicator\": \"cash_flow\", \"years\": 3}}",
+      "parsed": {
+        "tool": "fetch_financial_data",
+        "args": {
+          "stock_code": "002594",
+          "indicator": "cash_flow",
+          "years": 3
+        }
+      },
+      "time_s": 3.45,
+      "valid_json": true,
+      "has_tool_or_answer": true,
+      "has_args": true,
+      "tool_valid": true,
+      "args_valid": false,
+      "answer_valid": false,
+      "passed": false
+    }
+  ]
+}

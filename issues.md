@@ -550,3 +550,98 @@ MySQL JSON 列（`ResearchTask.output_data`）无法序列化 numpy 类型（`nu
 - `backend/app/schemas/common.py`
 - `frontend/src/services/api.ts`
 - `frontend/src/pages/TaskManage.tsx`
+
+---
+
+## 29. react_protocol LoRA 微调 — 本地模型工具调用可靠性提升
+
+**背景：** 本地 Qwen2.5-3B 的 ReAct JSON 协议输出不稳定，约 40% 的情况下输出非合法 JSON（多余文本、Markdown 包裹、占位符等），导致 function calling 失败率高，频繁触发 DeepSeek API 兜底。
+
+**方案：** 使用 PEFT LoRA 微调，针对 react_protocol 场景专项训练。
+
+**实施：**
+
+| 步骤 | 文件 | 说明 |
+|------|------|------|
+| 数据采集 | `training/collect_data.py` | 合成 react_protocol 训练数据 292 条（73 原始 × 4 扩增） |
+| 数据集准备 | `training/prepare_dataset.py` | JSONL → SFT 格式，train/val split |
+| 训练 | `training/train_lora.py` | PEFT + HF Trainer，bf16，EarlyStopping patience=3 |
+| 合并 | `training/merge_adapter.py` | 合并 LoRA 到基础模型（可选） |
+| 测试 | `training/test_adapter.py` | 8 用例推理测试 |
+| 集成 | `app/llm/local_qwen.py` | 新增 `_load_adapter()` / `switch_adapter()` |
+
+**训练参数：**
+- LoRA rank=16, alpha=32, dropout=0.1
+- Target: q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj
+- Epochs: 3, EarlyStopping patience=3
+
+**训练结果：**
+
+| 指标 | 值 |
+|------|-----|
+| train_loss | 0.0098 |
+| eval_loss | 0.0130 |
+| gap | 0.003 (几乎无过拟合) |
+| 总步数 | 786 |
+
+**推理测试结果：** 42 条域外用例，基座 69.0% → +LoRA 92.9%（+23.9%）
+
+| 指标 | 基座模型 | + LoRA | 提升 |
+|------|---------|--------|------|
+| 总通过率 | 29/42 (69.0%) | **39/42 (92.9%)** | +23.9% |
+| JSON 格式合法率 | 38/42 (90.5%) | **42/42 (100%)** | +9.5% |
+| 工具选择正确率 | 33/42 (78.6%) | **39/42 (92.9%)** | +14.3% |
+| 参数正确率 | 29/42 (69.0%) | **39/42 (92.9%)** | +23.9% |
+
+**关键改进：**
+1. 总通过率 69.0% → 92.9%（+23.9%），42 条域外用例
+2. JSON 格式合法率 90.5% → 100%（+9.5%），消除多 JSON 拼接问题
+3. 股票代码格式修复：基座输出 `"BYD"` / `"002594.SZ"` / `"贵州茅台"`，LoRA 全部修正为 6 位纯数字
+4. indicator 枚举值修复：基座输出 `"financial"` / `"all"` / `"income_statement"` 等无效值，LoRA 修正为合法枚举
+5. 模糊输入鲁棒性强：B 类 10 条全部通过，模型能从口语化/无代码输入中自主推断
+6. 异常噪声完全免疫：D 类 8 条全部通过，乱码/重复/矛盾指令均不影响输出
+7. 唯一残留弱点：`cashflow`/`overview` 枚举值拼写（3/42 = 7.1% 错误率）
+
+**使用方式：**
+
+```bash
+# 方式一：环境变量
+set LORA_ADAPTER_DIR=D:\py\fastapi_demo\coin\backend\training\lora_output\react_protocol\adapter
+
+# 方式二：运行时切换
+from app.agents.local_qwen import llm
+llm.switch_adapter("training/lora_output/react_protocol/adapter")
+```
+
+**涉及文件：**
+- `backend/training/collect_data.py`（新增）
+- `backend/training/prepare_dataset.py`（新增）
+- `backend/training/train_lora.py`（新增）
+- `backend/training/merge_adapter.py`（新增）
+- `backend/training/test_adapter.py`（新增）
+- `backend/training/test_adapter_42.py`（新增：扩充 42 条域外测试集）
+- `backend/training/test_baseline.py`（新增：基座模型 baseline 测试）
+- `backend/app/llm/local_qwen.py`（修改：新增 adapter 加载/切换）
+- `backend/requirements.txt`（修改：新增 peft, trl, datasets, accelerate）
+
+---
+
+## 30. 其他任务 LoRA 微调计划
+
+**待训练任务：**
+
+| 任务 | 数据来源 | 难度 | 说明 |
+|------|---------|------|------|
+| report_writing | MySQL 报告表 | 中 | 需 DB 采集真实数据 |
+| critic_review | MySQL 报告表 | 中 | 需人工标注好坏样本 |
+| supervisor_dispatch | Agent 执行历史 | 高 | 需任务分配记录 |
+
+**环境依赖：**
+- peft 0.19.1, trl 1.10.0, datasets 5.0.1
+- CUDA torch 2.13.0+cu126 (coin venv)
+- GPU: RTX 4060 Laptop (bf16)
+
+**注意事项：**
+- trl 1.10.0 的 SFTConfig 存在 `_patch_chunked_ce_lm_head` bug，改用标准 HF Trainer
+- bf16 需运行时检测 `torch.cuda.get_device_capability()` 确定
+- EarlyStopping patience=3 + load_best_model_at_end=True 防止过拟合

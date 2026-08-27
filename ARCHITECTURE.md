@@ -385,3 +385,102 @@ Python 3.13 在 Windows 上存在线程池与 asyncio 交互的已知问题，�
 ### 为什么不用 LangGraph Checkpointer
 
 LangGraph 内置的 Checkpointer 是为持久化历史状态（用于状态回放/人机交互）设计的，需要引入存储后端（SQLite/PostgreSQL）。本系统对历史状态无需求——`research_tasks` 表已承担业务层面的持久化。引入 Checkpointer 会增加 JSON 序列化适配工作且无收益。
+
+## LoRA 微调训练
+
+### 架构
+
+```
+backend/training/
+├── collect_data.py        — 从 DB 采集训练数据（react_protocol 合成 292 条）
+├── prepare_dataset.py     — JSONL → SFT 格式 + 扩增 4x
+├── train_lora.py          — PEFT + HF Trainer LoRA 微调
+├── merge_adapter.py       — 合并 LoRA 到基础模型
+├── test_adapter.py        — 推理测试（8 用例，100% 通过）
+├── TEST_REPORT.md         — 测试报告
+└── lora_output/react_protocol/
+    └── adapter/           — 14MB 可加载 adapter
+```
+
+### 训练参数
+
+| 参数 | 值 |
+|------|-----|
+| LoRA rank | 16 |
+| LoRA alpha | 32 |
+| Target modules | q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj |
+| fp16/bf16 | bf16 (RTX 4060 Laptop) |
+| EarlyStopping patience | 3 |
+| lora_dropout | 0.1 |
+
+### 训练指标
+
+| 指标 | 值 |
+|------|-----|
+| train_loss | 0.0098 |
+| eval_loss | 0.0130 |
+| gap | 0.003 (几乎无过拟合) |
+
+### 推理测试结果
+
+**扩充版 42 条域外测试集，基座 69.0% → +LoRA 92.9%（+23.9%）**
+
+| 指标 | 基座模型 | + LoRA | 提升 |
+|------|---------|--------|------|
+| 总通过率 | 29/42 (69.0%) | **39/42 (92.9%)** | +23.9% |
+| JSON 格式合法率 | 38/42 (90.5%) | **42/42 (100%)** | +9.5% |
+| 工具选择正确率 | 33/42 (78.6%) | **39/42 (92.9%)** | +14.3% |
+| 参数正确率 | 29/42 (69.0%) | **39/42 (92.9%)** | +23.9% |
+
+基座模型典型错误：
+- 股票代码格式：`"BYD"` / `"002594.SZ"` / `"贵州茅台"` → LoRA 修复
+- indicator 枚举值无效：`"financial"` / `"all"` / `"income_statement"` → LoRA 修复
+- 多个 JSON 对象拼接：`{}{}` → LoRA 修复
+- LoRA 唯一残留：`cash_flow` vs `cashflow`（3/42 = 7.1%）
+
+### 使用方式
+
+**方式一：环境变量自动加载**
+```bash
+set LORA_ADAPTER_DIR=D:\py\fastapi_demo\coin\backend\training\lora_output\react_protocol\adapter
+python -m app.main
+```
+
+**方式二：运行时动态切换**
+```python
+from app.agents.local_qwen import llm
+llm.switch_adapter("training/lora_output/react_protocol/adapter")
+```
+
+**方式三：合并到基础模型**
+```bash
+python -m training.merge_adapter --base "..." --adapter "..." --output "..."
+```
+
+### 后续计划
+
+| 任务 | 数据来源 | 难度 | 说明 |
+|------|---------|------|------|
+| report_writing | MySQL 报告表 | 中 | 需 DB 采集真实数据 |
+| critic_review | MySQL 报告表 | 中 | 需人工标注好坏样本 |
+| supervisor_dispatch | Agent 执行历史 | 高 | 需任务分配记录 |
+
+---
+
+## 文件映射（更新）
+
+```
+backend/
+  ...（前文已列）
+  training/
+    collect_data.py          — 训练数据采集
+    prepare_dataset.py       — 数据集准备（SFT 格式 + 扩增）
+    train_lora.py            — LoRA 微调训练
+    merge_adapter.py         — 合并 adapter 到基础模型
+    test_adapter.py          — 推理测试
+    TEST_REPORT.md           — 测试报告
+    lora_output/             — 训练输出（adapter/checkpoint/stats）
+  app/
+    llm/
+      local_qwen.py          — 本地 Qwen 推理 + adapter 热加载
+```

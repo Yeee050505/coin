@@ -1,8 +1,10 @@
 # coding: utf-8
-"""Local Qwen2.5 inference via transformers (GPU). Lazy singleton, asyncio-safe."""
+"""Local Qwen2.5 inference via transformers (GPU). Lazy singleton, asyncio-safe.
+Supports LoRA adapter loading via environment variable LORA_ADAPTER_DIR."""
 import asyncio
 import json
 import logging
+import os
 import re
 import threading
 from typing import Any, Dict, List, Optional
@@ -15,10 +17,11 @@ _model = None
 _tokenizer = None
 _gen_lock = threading.Lock()
 _load_lock = threading.Lock()
+_current_adapter = None
 
 
 def _load():
-    global _model, _tokenizer
+    global _model, _tokenizer, _current_adapter
     with _load_lock:
         if _model is not None:
             return _model, _tokenizer
@@ -34,9 +37,51 @@ def _load():
             device_map="auto",
             trust_remote_code=True,
         )
+
+        adapter_path = os.environ.get("LORA_ADAPTER_DIR", "")
+        if adapter_path and os.path.isdir(adapter_path):
+            _load_adapter(adapter_path)
+
         _model.eval()
         logger.info("[local_qwen] Model loaded")
     return _model, _tokenizer
+
+
+def _load_adapter(adapter_path: str):
+    """Load a LoRA adapter into the model."""
+    global _model, _current_adapter
+    try:
+        from peft import PeftModel
+        if _current_adapter:
+            try:
+                _model = _model.merge_and_unload()
+            except Exception:
+                pass
+            _current_adapter = None
+        _model = PeftModel.from_pretrained(_model, adapter_path)
+        _current_adapter = adapter_path
+        logger.info(f"[local_qwen] LoRA adapter loaded: {adapter_path}")
+    except Exception as e:
+        logger.warning(f"[local_qwen] Failed to load LoRA adapter: {e}")
+
+
+def switch_adapter(adapter_path: str):
+    """Switch to a different LoRA adapter at runtime."""
+    global _model, _current_adapter
+    if _model is None:
+        os.environ["LORA_ADAPTER_DIR"] = adapter_path
+        return
+    with _load_lock:
+        try:
+            if _current_adapter:
+                from peft import PeftModel
+                _model = _model.merge_and_unload()
+                _current_adapter = None
+            if adapter_path and os.path.isdir(adapter_path):
+                _load_adapter(adapter_path)
+                _model.eval()
+        except Exception as e:
+            logger.warning(f"[local_qwen] Adapter switch failed: {e}")
 
 
 def _generate_blocking(messages: List[Dict[str, Any]], temperature: float, max_new_tokens: int) -> str:
