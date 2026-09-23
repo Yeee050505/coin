@@ -65,3 +65,12 @@ class AgentStateResponse(BaseModel):
     progress: float = 0.0
     started_at: Optional[str] = None
     completed_at: Optional[str] = None
+    duration_s: Optional[float] = None
+
+
+class PaginatedProjects(BaseModel):
+    items: List[ProjectResponse]
+    total: int
+    page: int
+    size: int
+    pages: int

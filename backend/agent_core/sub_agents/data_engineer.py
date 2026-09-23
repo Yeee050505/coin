@@ -1,5 +1,5 @@
 # coding: utf-8
-"""Data Engineer Agent - fetch financial data and interpret with LLM"""
+"""数据工程师 - 负责财务数据获取与解读"""
 from typing import Any, Dict
 from app.agents.base.base_agent import BaseAgent, AgentContext
 from app.tools.registry import call_tool
@@ -8,19 +8,19 @@ import asyncio, logging
 logger = logging.getLogger(__name__)
 
 
-class ChiefDataEngineer(BaseAgent):
+class DataEngineer(BaseAgent):
     def __init__(self):
         super().__init__(
-            name="chief_data_engineer",
+            name="data_engineer",
             model_name="deepseek-chat",
             system_prompt="""
-You are a financial data engineer. Based on the financial data you have acquired, you need to:
-1. Interpret the meaning and trends of various financial indicators
-2. Identify anomalies and key changes in the data
-3. Assess the company's financial health
-4. Present data analysis results in a structured way
+你是一名金融数据工程师。基于获取到的财务数据，你需要：
+1. 解读各项财务指标的含义和趋势
+2. 识别数据中的异常和关键变化
+3. 评估公司的财务健康状况
+4. 以结构化方式呈现数据分析结果
 
-If data sources are unavailable, provide analysis based on your knowledge. Output in Chinese.
+如果数据源不可用，基于你的知识提供分析。用中文输出。
 """,
         )
 

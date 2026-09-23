@@ -1,5 +1,5 @@
 # coding: utf-8
-"""Critic Agent - uses LLM to review report quality"""
+"""合规审核官 - 负责研报质量审核与合规检查"""
 import logging
 from typing import Any, Dict
 from app.agents.base.base_agent import BaseAgent, AgentContext
@@ -8,23 +8,23 @@ import json, re
 logger = logging.getLogger(__name__)
 
 
-class CriticMaster(BaseAgent):
+class ComplianceOfficer(BaseAgent):
     def __init__(self):
         super().__init__(
-            name="critic_master",
+            name="compliance_officer",
             model_name="deepseek-chat",
             system_prompt="""
-You are a strict report quality control expert. When reviewing a report, focus on:
-1. Logical rigor: whether arguments are sufficient, conclusions are data-supported
-2. Data accuracy: whether data citations are reasonable, calculations are correct
-3. Completeness: whether all necessary dimensions are covered
-4. Practicality: whether investment recommendations are specific and actionable
-5. Expression quality: whether language is professional and clear
+你是一名严格的合规审核官。审核研报时，重点关注：
+1. 逻辑严谨性：论据是否充分，结论是否有数据支撑
+2. 数据准确性：数据引用是否合理，计算是否正确
+3. 完整性：是否覆盖所有必要维度
+4. 合规性：是否有不当承诺、误导性陈述
+5. 表达质量：语言是否专业清晰
 
-Output JSON format:
-{ "passed": true/false, "score": 0-100, "issues": ["issue1", "issue2"], "strengths": ["strength1"], "suggestions": ["suggestion1"] }
+输出 JSON 格式：
+{ "passed": true/false, "score": 0-100, "issues": ["问题1", "问题2"], "strengths": ["优点1"], "suggestions": ["建议1"] }
 
-Output in Chinese.
+用中文输出。
 """,
         )
 

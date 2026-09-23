@@ -45,15 +45,53 @@ async def web_search(query: str, max_results: int = 5):
         except Exception as e:
             logger.warning(f"Tavily failed: {e}")
 
+    # 国内可用：必应国内版 (cn.bing.com) - 无需 API key，相对稳定
+    try:
+        import httpx
+        from bs4 import BeautifulSoup
+        import urllib.parse
+
+        async def _bing_cn_search():
+            url = "https://cn.bing.com/search"
+            params = {"q": query, "count": max_results}
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+            }
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.get(url, params=params, headers=headers)
+            soup = BeautifulSoup(resp.text, "html.parser")
+            results = []
+            for item in soup.select("li.b_algo"):
+                title_elem = item.select_one("h2 a")
+                content_elem = item.select_one(".b_caption p")
+                if title_elem:
+                    title = title_elem.get_text(strip=True)
+                    url = title_elem.get("href", "")
+                    content = content_elem.get_text(strip=True) if content_elem else ""
+                    results.append({"title": title, "url": url, "content": content[:500]})
+                    if len(results) >= max_results:
+                        break
+            return results
+
+        rlist = await asyncio.wait_for(_bing_cn_search(), timeout=15.0)
+        if rlist:
+            return {"status": "success", "results": rlist, "source": "bing_cn"}
+    except asyncio.TimeoutError:
+        logger.warning(f"Bing CN search timed out for: {query}")
+    except Exception as e:
+        logger.warning(f"Bing CN search failed: {e}")
+
+    # 备用：ddgs (保留但不作为首选)
     try:
         from ddgs import DDGS
 
         async def _ddgs_search():
             loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(None, lambda: list(DDGS().text(query, max_results=max_results)))
-        rlist = await asyncio.wait_for(_ddgs_search(), timeout=20.0)
+            return await loop.run_in_executor(None, lambda: list(DDGS().text(query, max_results=max_results, backend="yandex")))
+        rlist = await asyncio.wait_for(_ddgs_search(), timeout=15.0)
         if rlist:
-            return {"status": "success", "results": [{"title": r.get("title",""), "url": r.get("href",""), "content": r.get("body","")[:500]} for r in rlist], "source": "ddgs"}
+            return {"status": "success", "results": [{"title": r.get("title",""), "url": r.get("href",""), "content": r.get("body","")[:500]} for r in rlist], "source": "ddgs_yandex"}
     except asyncio.TimeoutError:
         logger.warning(f"DDGS search timed out for: {query}")
     except Exception as e:

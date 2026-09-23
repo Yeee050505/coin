@@ -2,7 +2,7 @@
 
 const api = axios.create({ baseURL: '/api', timeout: 30000 });
 
-export const getProjects = () => api.get('/projects').then(r => r.data);
+export const getProjects = (page: number = 1, size: number = 10) => api.get('/projects', { params: { page, size } }).then(r => r.data);
 export const getProjectDetail = (id: number) => api.get(`/projects/${id}`).then(r => r.data);
 export const createProject = (data: any) => api.post('/projects', data).then(r => r.data);
 export const followupProject = (id: number, question: string) => api.post(`/projects/${id}/followup`, { question }).then(r => r.data);

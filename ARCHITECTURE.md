@@ -12,7 +12,7 @@
 | **后端** | Python 3.13, FastAPI, SQLAlchemy 2.0, PyMySQL | REST API，端口 8001 |
 | **Agent 框架** | LangGraph 1.2.6 (`StateGraph`) | Supervisor 主控循环：状态快照 + LLM 决策派遣 worker |
 | **LLM** | DeepSeek Chat API（`deepseek-chat`） via `httpx` | 直连 HTTP，规避 OpenAI SDK 编码问题 |
-| **数据源** | AKShare（东方财富/新浪/同花顺）, yfinance, Tavily 搜索 API | 多源竞争/故障转移模式 |
+| **数据源** | AKShare（东方财富/新浪/同花顺）, yfinance, Bing CN 网页搜索 | 多源竞争/故障转移模式 |
 | **数据库** | MySQL 8.0，JSON 列 | `research_projects`、`research_tasks` 表 |
 | **任务编排** | `threading.Thread` + `asyncio.new_event_loop()` 调用 LangGraph | 每个工作流独占一个守护线程 |
 
@@ -37,10 +37,11 @@
          │    │         │         │                   │
          │    │    supervisor ◄───┤                   │
          │    │   主控循环(≤8轮)  │ LLM 每轮决策       │
-         │    │   ├─ run_architect / run_scout        │
-         │    │   ├─ run_data_engineer / run_analyst  │
+         │    │   ├─ run_analyst / run_data_engineer  │
+         │    │   ├─ run_quant / run_fundamental      │
+         │    │   ├─ run_news / run_technical         │
          │    │   ├─ run_researcher ─┐                │
-         │    │   └─ run_critic ◄────┘ auto review    │
+         │    │   └─ run_compliance ◄┘ auto review    │
          │    │         │ 追问: 反馈→重写→复查       │
          │    │         ▼                             │
          │    │    END                                │
@@ -70,12 +71,14 @@
 
 | worker 工具 | 对应 Agent | 说明 |
 |---|---|---|
-| run_architect | chief_architect | 生成大纲 |
-| run_scout | deep_scout | 多角度搜索（内部 FC 自主定角度） |
-| run_data_engineer | chief_data_engineer | 拉财务数据 + 解读 |
-| run_analyst | data_analyst | 图表 |
-| run_researcher | chief_researcher | 写报告；args.instruction 携带修改要求 |
-| run_critic | critic_master | 审查；携带上次反馈复查 |
+| run_analyst | chief_analyst | 生成研报大纲 |
+| run_data_engineer | data_engineer | 拉财务数据 + 解读 |
+| run_quant | quant_analyst | 图表生成 |
+| run_fundamental | fundamental_analyst | 基本面分析 |
+| run_news | news_analyst | 新闻/舆情/政策分析（Bing CN 搜索） |
+| run_technical | technical_analyst | 技术分析（K线、指标） |
+| run_researcher | senior_researcher | 写报告；args.instruction 携带修改要求 |
+| run_compliance | compliance_officer | 审查；携带上次反馈复查 |
 
 ### 多轮追问闭环
 
@@ -95,7 +98,7 @@ supervisor 决策：run_researcher(instruction=critic反馈) ──► auto crit
 
 | 防线 | 行为 |
 |---|---|
-| **阶段门控** | 模型决策无效 / 乱 finish 时，自动按规范顺序（architect→scout→engineer→analyst→researcher）推进下一缺省阶段 |
+| **阶段门控** | 模型决策无效 / 乱 finish 时，自动按规范顺序（analyst→engineer→quant→fundamental→news→technical→researcher）推进下一缺省阶段 |
 | **重复守卫** | 同一 worker 决策连续 ≥2 次 → 强制兜底流水线（auto critic 后重置计数，避免误伤合法追问） |
 | **兜底流水线** | 主控完全失效时顺序执行完整流程 + 一轮 feedback 修订（修订轮强制 DeepSeek） |
 | **critic 阈值** | score ≥ 55 视为通过（3B 评审过严会烧光轮次） |
@@ -180,8 +183,8 @@ POST /api/projects
        ├─ graph_builder.run()
        │   ├─ parse node (IntentParser)    ← 提取 stock_codes
        │   ├─ supervisor 主控循环          ← LLM 动态编排 ≤8 轮
-       │   │    └─ 派遣 worker：architect / scout / engineer / analyst / researcher / critic
-       │   │    └─ researcher 后自动 critic，未通过带反馈重派（追问）
+       │   │    └─ 派遣 worker：analyst / engineer / quant / fundamental / news / technical / researcher / compliance
+       │   │    └─ researcher 后自动 compliance，未通过带反馈重派（追问）
        │   └─ return result
        │
        ├─ status_db = get_session()        ← 新 session 写最终状态
@@ -218,11 +221,13 @@ POST /api/projects/{id}/followup {question}
 |-------|------|----------|
 | **supervisor** | 主控编排，运行时决定派遣哪个 worker、顺序与轮次 | 状态快照 + LLM 决策循环（本地 ReAct JSON / DeepSeek 原生 tools），多轮追问驱动 |
 | **chief_architect** | 理解用户需求，制定研究框架和报告大纲 | LLM 生成 8 章结构，覆盖产品概况、业绩、持仓、策略、风险、持有人、对比、结论 |
-| **deep_scout** | 多源网络检索，收集行业动态和最新信息 | function calling 自主调用 web_search（DuckDuckGo） |
-| **chief_data_engineer** | 获取真实财务数据并做初步解读 | AKShare（3 源 failover）获取行情/财报/yfinance 国际数据，LLM 分析趋势 |
-| **data_analyst** | 数据可视化，生成图表 | LLM 生成图表规格 → `run_chart_code` 工具 → matplotlib 渲染 SVG |
-| **chief_researcher** | 综合所有信息撰写完整深度研究报告 | LLM 融合各 Agent 产出，支持 research_instruction 修改要求注入 |
-| **critic_master** | 质量评审，控制是否回退重写 | LLM 评分 + review_passed 开关 + 上次反馈复查（score≥55 视为通过） |
+| **news_analyst** | 联网检索新闻、舆情与政策 | web_search（Bing CN 优先，DDGS yandex 兜底），LLM 归纳要点 |
+| **data_engineer** | 获取真实财务数据并做初步解读 | AKShare（3 源 failover）获取行情/财报/yfinance 国际数据，LLM 分析趋势 |
+| **quant_analyst** | 数据可视化，生成图表 | LLM 生成图表规格 → `run_chart_code` 工具 → matplotlib 渲染 SVG |
+| **fundamental_analyst** | 基本面分析 | 财务报表、估值指标解读 |
+| **technical_analyst** | 技术分析 | K线形态与技术指标 |
+| **senior_researcher** | 综合所有信息撰写完整深度研究报告 | LLM 融合各 Agent 产出，支持 research_instruction 修改要求注入 |
+| **compliance_officer** | 质量评审，控制是否回退重写 | LLM 评分 + review_passed 开关 + 上次反馈复查（score≥55 视为通过） |
 
 ## 量化成果
 
@@ -314,13 +319,15 @@ backend/
       graph_builder.py             — WorkflowGraph：LangGraph StateGraph 定义
       intent_parser.py             — 从用户请求中提取股票代码/分析维度
     sub_agents/
-      supervisor_agent.py           — Supervisor 主控（decide() + worker 工具定义）
-      chief_architect.py            — worker：研究大纲（LLM）
-      deep_scout.py                 — worker：网络搜索（function calling / DDGS）
-      data_engineer.py              — worker：AKShare/yfinance 数据 + LLM 分析
-      data_analyst.py               — worker：图表生成（LLM + matplotlib）
-      chief_researcher.py           — worker：完整报告撰写（LLM）
-      critic_master.py              — worker：质量评审 + 追问反馈（LLM）
+       supervisor_agent.py           — Supervisor 主控（decide() + worker 工具定义）
+       chief_architect.py            — worker：研究大纲（chief_analyst，LLM）
+       data_engineer.py              — worker：AKShare/yfinance 数据 + LLM 分析
+       data_analyst.py               — worker：图表生成（quant_analyst，LLM + matplotlib）
+       fundamental_analyst.py        — worker：基本面分析（LLM）
+       news_analyst.py               — worker：新闻/舆情分析（Bing CN 搜索）
+       technical_analyst.py          — worker：技术分析（LLM）
+       chief_researcher.py           — worker：完整报告撰写（senior_researcher，LLM）
+       critic_master.py              — worker：质量评审 + 追问反馈（compliance_officer，LLM）
 frontend/
   src/
     App.tsx                        — 路由（单路由：/）

@@ -1,49 +1,54 @@
 # 金融多 Agent 协作研报生成系统
 
-> 一个由 **Supervisor 主控 + 6 个专职 worker Agent** 组成的智能金融研究系统。主控 LLM 在运行时自主编排：决定派遣哪个 Agent、什么顺序、迭代几轮；支持 critic 反馈驱动的**多轮追问改写**。用户提交研究主题，系统自动输出完整深度研究报告。
+> 一个由 **Supervisor 主控 + 7 个专职 worker Agent** 组成的智能金融研究系统。主控 LLM 在运行时自主编排：决定派遣哪个 Agent、什么顺序、迭代几轮；支持 critic 反馈驱动的**多轮追问改写**。用户提交研究主题，系统自动输出完整深度研究报告。
 
 ---
 
 ## 多 Agent 协作架构
 
-### 主控 + 6 个专职 worker
+### 主控 + 7 个专职 worker
 
 | Agent | 角色 | 职责 | 核心能力 |
 |---|---|---|---|
 | **supervisor** | 主控/编排者 | 运行时动态决策：派遣哪个 worker、顺序、轮次 | 状态快照 + LLM 决策循环（≤8 轮）；本地 Qwen 走 ReAct JSON 协议，DeepSeek 走原生 function calling |
-| **chief_architect** | 架构师 | 解析需求，产出结构化研报大纲 | LLM 生成 6-8 章 Markdown 大纲 |
-| **deep_scout** | 侦察兵 | 网络信息检索与综合 | function calling 自主决定搜索角度（DuckDuckGo） |
-| **chief_data_engineer** | 数据工程师 | 获取真实财务数据并解读 | AKShare 3 源竞速（东财/新浪/同花顺）+ yfinance，缓存 300s |
-| **data_analyst** | 数据分析师 | 数据可视化 | LLM 生成图表规格 → matplotlib 渲染 SVG |
-| **chief_researcher** | 研究员 | 撰写完整研究报告 | 融合全部 Agent 产出；支持修改要求注入 |
-| **critic_master** | 评审官 | 质量把关与追问驱动 | 5 维度打分 + 携带上次反馈复查；score≥55 视为通过 |
+| **chief_analyst** | 首席分析师 | 解析需求，产出结构化研报大纲 | LLM 生成 6-8 章 Markdown 大纲 |
+| **data_engineer** | 数据工程师 | 获取真实财务数据并解读 | AKShare 3 源竞速（东财/新浪/同花顺）+ yfinance，缓存 300s |
+| **quant_analyst** | 量化分析师 | 数据可视化 | LLM 生成图表规格 → matplotlib 渲染 SVG |
+| **fundamental_analyst** | 基本面分析师 | 公司基本面深度分析 | 财务指标、估值模型、护城河分析 |
+| **news_analyst** | 新闻分析师 | 行业与公司新闻追踪 | 联网搜索（Bing CN）+ 新闻聚合、事件驱动分析、政策影响评估 |
+| **technical_analyst** | 技术分析师 | 技术指标与K线分析 | K线形态、MACD/RSI/布林带等技术指标 |
+| **senior_researcher** | 高级研究员 | 撰写完整研究报告 | 融合全部 Agent 产出；支持修改要求注入 |
+| **compliance_officer** | 合规审核官 | 质量把关与追问驱动 | 5 维度打分 + 携带上次反馈复查；score≥55 视为通过 |
 
 ### 协作机制
 
 ```
                  ┌─── supervisor 主控循环（≤8 轮）────┐
                  │  每轮: 阶段状态快照 → LLM 决策     │
-                 │  ├─ run_architect       ──────────┤
-                 │  ├─ run_scout           ──────────┤ ← 顺序由 LLM 动态决定
-                 │  ├─ run_data_engineer   ──────────┤   （实测 3B 自主规划
-                 │  ├─ run_analyst         ──────────┤    scout→engineer→
-                 │  ├─ run_researcher → 自动送审 ───┤    architect→analyst→
-                 │  └─ run_critic ←────┘  │         │    researcher）
+                 │  ├─ run_chief_analyst     ─────────┤
+                 │  ├─ run_data_engineer     ─────────┤ ← 顺序由 LLM 动态决定
+                 │  ├─ run_quant_analyst     ─────────┤   （实测 3B 自主规划
+                 │  ├─ run_fundamental       ─────────┤    researcher→engineer→
+                 │  ├─ run_news              ─────────┤    analyst→...）
+                 │  ├─ run_technical         ─────────┤
+                 │  ├─ run_researcher → 自动送审 ─────┤
+                 │  └─ run_compliance ←────┘  │       │
                  │                         │ 未通过  │
                  │        ┌── 多轮追问 ────┘         │
                  │        ▼                          │
                  │  run_researcher(instruction=反馈) │
-                 │      → run_critic(复查上轮问题)    │
+                 │      → run_compliance(复查上轮)    │
                  │  审查通过 → END                     │
                  └───────────────────────────────────┘
 ```
 
 - **动态编排**：主控每轮读取状态快照（大纲/搜索/财务/图表/草稿/审查），自主选择下一个 worker，不依赖写死的边
-- **多轮追问闭环**：草稿自动送审；未通过时主控带 critic 反馈重派研究员，critic 携带上次反馈核对修复情况，迭代至通过（P66 一次收敛）
+- **多轮追问闭环**：草稿自动送审；未通过时主控带 compliance 反馈重派 researcher，compliance 携带上次反馈核对修复情况，迭代至通过
 - **共享数据总线**：Agent 间通过 `intermediate` 字典间接通信（写方 `save_intermediate`，读方 `get`）
 - **可靠性防线**：阶段门控（决策无效自动按序推进）+ 重复守卫 + 固定顺序兜底流水线，小模型决策失效也能 100% 产出报告
-- **DeepSeek 双重兜底**：本地推理失败/空输出 → 自动重试 DS API；本地评审连续 2 次未通过 → 研究员+评审强制切 DS 重写再审（P67 实测升级后一次通过 72 分）
+- **DeepSeek 双重兜底**：本地推理失败/空输出 → 自动重试 DS API；本地评审连续 2 次未通过 → 研究员+评审强制切 DS 重写再审
 - **用户侧多轮追问**：`POST /api/projects/{id}/followup` 逐轮对已有报告提问 —— 采用轻量 Q&A 模式直接作答（不重生成整篇报告）；会话隔离 + 最近 4 轮滑动窗口上下文；每轮独立落库 `followup_N`，前端详情弹窗逐轮展示
+- **per-agent 延迟追踪**：每个 Agent 执行自动记录 `started_at`/`completed_at`，API 返回 `duration_s`，后端日志汇总打印耗时
 
 ---
 
@@ -57,20 +62,20 @@
 
 | 挑战 | 具体问题 |
 |---|---|
-| **Agent 编排** | 6 个 worker Agent 存在数据依赖（搜索先于研究、财务先于图表），且流程在运行时才确定 |
+| **Agent 编排** | 7 个 worker Agent 存在数据依赖（财务先于图表），且流程在运行时才确定 |
 | **动态调度** | 固定 DAG 无法满足"运行时决定谁先谁后、要不要再搜一轮"的自主协作诉求 |
 | **质量可控** | LLM 可能输出幻觉或遗漏，如何自动检测并驱动重写收敛 |
 | **数据工程** | 金融 API 反爬 + 频率限制；MySQL JSON 列无法存 numpy/pandas 类型 |
 | **本地化运行** | 无 API 依赖也能跑：8GB 显存 + 16GB 内存环境下的本地小模型全流程 |
-| **平台稳定** | 历史 8 次线上故障：LLM 乱码、Session 挂死、搜索崩溃、后台任务被 GC 回收等 |
+| **平台稳定** | 历史 28 次线上故障：LLM 乱码、Session 挂死、搜索崩溃、后台任务被 GC 回收等 |
 
 ### Action
 
 **1. Supervisor 多 Agent 编排（核心）**
 
 - 主控循环：状态快照 → LLM 决策 → 派遣 worker → 回填状态，直到审查通过
-- worker 工具化：6 个专职 Agent 封装为可调用工具，主控自主组合
-- 多轮追问：researcher 自动送审 + critic 反馈记忆，未通过带要求重写，直至收敛
+- worker 工具化：7 个专职 Agent 封装为可调用工具，主控自主组合
+- 多轮追问：researcher 自动送审 + compliance 反馈记忆，未通过带要求重写，直至收敛
 - 三道防线保障可靠性：阶段门控 / 重复守卫 / 兜底流水线
 
 **2. Agent 工程能力**
@@ -79,8 +84,8 @@
 |---|---|
 | **function calling** | 双协议：DeepSeek 原生 tools / 本地 Qwen ReAct JSON；模型自主选工具 + 参数，max_rounds 兜底 |
 | **多模型后端** | `LLM_PROVIDER` 一键切换 DeepSeek API / 本地 Qwen2.5-3B-Instruct（transformers, bf16 GPU, 线程锁串行化） |
-| **多轮追问** | critic 携上次反馈复查，supervisor 带 instruction 重派研究员 |
-| **工程韧性** | 8 次故障修复（issues.md），压测成功率 100% |
+| **多轮追问** | compliance 携上次反馈复查，supervisor 带 instruction 重派研究员 |
+| **工程韧性** | 28 次故障修复（issues.md），压测成功率 100% |
 
 **3. 性能优化**
 
@@ -103,8 +108,9 @@
 | **DeepSeek 兜底** | P67 实测 | 本地评审连挂 2 次自动切 DS 重写再审，一次通过；报告 10912 字 |
 | **Agent 成功率** | **100%** | 全部 Agent success |
 | **报告长度** | 3000-10912 字 | 本地受 max_tokens(4096) 限制；DS 兜底重写可达万字级 |
-| **数据源** | 3 类 | 网络搜索(DuckDuckGo) + A 股行情(AKShare 3 源) + 财报(yfinance) |
-| **故障恢复** | 8/8 | 全部修复并验证无复发 |
+| **数据源** | 3 类 | 网络搜索(Bing CN) + A 股行情(AKShare 3 源) + 财报(yfinance) |
+| **故障恢复** | 28/28 | 全部修复并验证无复发 |
+| **per-agent 延迟** | 3-142s | quant_analyst 最快(3s)，senior_researcher 最慢(142s) |
 
 ---
 
@@ -116,7 +122,7 @@
 | **LLM** | 本地 Qwen2.5-3B-Instruct (transformers, bf16 GPU) / DeepSeek Chat API（`LLM_PROVIDER` 一键切换） |
 | **后端** | Python 3.13 + FastAPI + SQLAlchemy 2.0 + PyMySQL |
 | **前端** | React 18 + TypeScript + Ant Design 5 + Vite |
-| **数据** | AKShare（东财/新浪/同花顺）+ yfinance + DuckDuckGo (ddgs) |
+| **数据** | AKShare（东财/新浪/同花顺）+ yfinance + Bing CN 搜索 |
 | **可视化** | matplotlib 渲染 SVG 图表 |
 | **数据库** | MySQL 8.0（JSON 列，时区自动转 Asia/Shanghai） |
 
@@ -148,10 +154,16 @@
 backend/
   agent_core/
     scheduler_agent/graph_builder.py   — LangGraph 状态图（Supervisor 编排核心）
-    sub_agents/                        — supervisor 主控 + 6 个 worker Agent
+    sub_agents/                        — supervisor 主控 + 7 个 worker Agent
       supervisor_agent.py              — 主控：decide() 决策 + worker 工具定义
-      chief_architect.py / deep_scout.py / data_engineer.py
-      data_analyst.py / chief_researcher.py / critic_master.py
+      chief_architect.py               — 首席分析师（大纲生成）
+      data_engineer.py                 — 数据工程师（财务数据）
+      data_analyst.py                  — 量化分析师（图表生成）
+      fundamental_analyst.py           — 基本面分析师
+      news_analyst.py                  — 新闻分析师
+      technical_analyst.py             — 技术分析师
+      chief_researcher.py              — 高级研究员（报告撰写）
+      critic_master.py                 — 合规审核官（质量把关）
   app/
     api/                               — REST 接口（projects / reports / dashboard）
     tools/                             — AKShare 封装 + 工具注册（7 个工具）
@@ -200,6 +212,45 @@ curl -X POST http://127.0.0.1:8001/api/projects \
   -d '{"title":"宁德时代(300750)投资价值分析","description":"分析宁德时代的财务表现、行业地位与投资建议","scenario":"financial_research"}'
 ```
 
+### 项目列表（分页）
+
+```bash
+# 默认每页10条，按创建时间倒序
+curl "http://127.0.0.1:8001/api/projects?page=1&size=10"
+
+# 返回格式
+{
+  "items": [...],
+  "total": 21,
+  "page": 1,
+  "size": 10,
+  "pages": 3
+}
+```
+
+### Agent 延迟追踪
+
+```bash
+# 项目详情中每个 Agent 包含 duration_s 字段
+curl "http://127.0.0.1:8001/api/projects/71" | jq '.agent_statuses[] | {agent_name, duration_s}'
+
+# 输出示例
+{"agent_name": "quant_analyst", "duration_s": 3.0}
+{"agent_name": "senior_researcher", "duration_s": 142.0}
+```
+
+后端日志汇总：
+```
+[latency] agent durations (total 326s):
+  senior_researcher:      142s
+  data_engineer:          37s
+  quant_analyst:          38s
+  fundamental_analyst:    23s
+  news_analyst:           17s
+  technical_analyst:      11s
+  chief_analyst:          14s
+```
+
 ### 对已有报告追问（Q&A 多轮）
 
 ```bash
@@ -236,5 +287,5 @@ cd backend && python -m training.test_adapter_42
 ## 文档
 
 - `ARCHITECTURE.md` — 架构细节：调度机制、状态设计、压测量化（API/本地/Supervisor 三套数据）
-- `issues.md` — 28 个问题记录与修复（含 Supervisor 改造全过程 P62-P66、DeepSeek 双重兜底 P67、用户侧 Q&A 追问 P67-followup）
+- `issues.md` — 28 个问题记录与修复（含 Supervisor 改造全过程 P62-P66、DeepSeek 双重兜底 P67、用户侧 Q&A 追问 P67-followup、per-agent 延迟追踪、Bing 搜索切换）
 - `backend/training/TEST_REPORT.md` — react_protocol LoRA 微调测试报告

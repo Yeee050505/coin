@@ -8,7 +8,7 @@ import asyncio
 from sqlalchemy.orm import Session
 from app.models import get_db
 from app.models.database import ResearchProject, ResearchTask
-from app.schemas.common import ResearchRequest, FollowupRequest, ProjectResponse, ProjectDetail, TaskResponse
+from app.schemas.common import ResearchRequest, FollowupRequest, ProjectResponse, ProjectDetail, TaskResponse, PaginatedProjects
 
 logger = logging.getLogger(__name__)
 _background_tasks: set = set()
@@ -133,10 +133,18 @@ async def followup_project(project_id: int, req: FollowupRequest, db: Session = 
     return {"project_id": project_id, "message": "追问已提交，正在调度Agent执行"}
 
 
-@router.get("", response_model=list[ProjectResponse])
-async def list_projects(db: Session = Depends(get_db)):
-    projects = db.query(ResearchProject).order_by(ResearchProject.created_at.desc()).all()
-    return [ProjectResponse(id=p.id, title=p.title, scenario=p.scenario, status=p.status, report_path=p.report_path, created_at=p.created_at) for p in projects]
+@router.get("", response_model=PaginatedProjects)
+async def list_projects(db: Session = Depends(get_db), page: int = 1, size: int = 10):
+    total = db.query(ResearchProject).count()
+    pages = (total + size - 1) // size
+    projects = db.query(ResearchProject).order_by(ResearchProject.created_at.desc()).offset((page - 1) * size).limit(size).all()
+    return PaginatedProjects(
+        items=[ProjectResponse(id=p.id, title=p.title, scenario=p.scenario, status=p.status, report_path=p.report_path, created_at=p.created_at) for p in projects],
+        total=total,
+        page=page,
+        size=size,
+        pages=pages,
+    )
 
 
 @router.get("/{project_id}", response_model=ProjectDetail)
@@ -145,10 +153,18 @@ async def get_project_detail(project_id: int, db: Session = Depends(get_db)):
     if not project:
         return {"error": "not found"}
     tasks = db.query(ResearchTask).filter(ResearchTask.project_id == project_id).order_by(ResearchTask.created_at).all()
-    agent_statuses = [{"agent_name": t.agent_name, "status": t.status, "current_action": t.agent_name,
-                       "progress": 1.0 if t.status == "success" else 0.0,
-                       "started_at": t.started_at.isoformat() if t.started_at else None,
-                       "completed_at": t.completed_at.isoformat() if t.completed_at else None} for t in tasks]
+    agent_statuses = []
+    for t in tasks:
+        dur = None
+        if t.started_at and t.completed_at:
+            dur = round((t.completed_at - t.started_at).total_seconds(), 1)
+        agent_statuses.append({
+            "agent_name": t.agent_name, "status": t.status, "current_action": t.agent_name,
+            "progress": 1.0 if t.status == "success" else 0.0,
+            "started_at": t.started_at.isoformat() if t.started_at else None,
+            "completed_at": t.completed_at.isoformat() if t.completed_at else None,
+            "duration_s": dur,
+        })
     return ProjectDetail(
         project=ProjectResponse(id=project.id, title=project.title, scenario=project.scenario, status=project.status, report_path=project.report_path, created_at=project.created_at),
         tasks=[TaskResponse(id=t.id, project_id=t.project_id, agent_name=t.agent_name, status=t.status, output_data=t.output_data, error_message=t.error_message,

@@ -1,24 +1,26 @@
 # coding: utf-8
-"""Research Writer Agent - uses LLM to write full report from all context"""
+"""高级研究员 - 负责整合看涨/看空观点，撰写完整研报"""
 from typing import Any, Dict
 from app.agents.base.base_agent import BaseAgent, AgentContext
 
 
-class ChiefResearcher(BaseAgent):
+class SeniorResearcher(BaseAgent):
     def __init__(self):
         super().__init__(
-            name="chief_researcher",
+            name="senior_researcher",
             model_name="deepseek-chat",
             system_prompt="""
-You are a senior financial research analyst, expert at writing in-depth research reports. Your reports should:
-1. Have clear structure and rigorous logic
-2. Be data-rich with accurate citations
-3. Have deep analysis and unique insights
-4. Be professionally formatted and readable
+你是一名资深金融高级研究员，擅长撰写深度研究报告。你的报告应该：
+1. 结构清晰，逻辑严谨
+2. 数据丰富，引用准确
+3. 分析深入，有独到见解
+4. 格式专业，可读性强
 
-CRITICAL: All numbers (prices, revenues, PE ratios, etc.) must come EXCLUSIVELY from the provided Financial Data Analysis section. NEVER fabricate, guess, or use your training knowledge for numerical data. If the provided data lacks a specific number, state "数据未提供" instead of making one up.
+核心要求：所有数字（价格、营收、PE等）必须完全来自提供的财务数据分析部分。
+绝对不要编造、猜测或使用你的训练知识中的数据。如果提供的数据缺少某个数字，标注"数据未提供"。
 
-Write in Markdown format, with data-driven analysis and specific investment recommendations. Write in Chinese.
+基于看涨研究员和看空研究员的分析，给出平衡的投资建议。
+用 Markdown 格式撰写，包含数据驱动的分析和具体的投资建议。用中文撰写。
 """,
         )
 
@@ -30,6 +32,9 @@ Write in Markdown format, with data-driven analysis and specific investment reco
         title = context.state.title
         followup_question = context.intermediate.get("followup_question", "")
         existing_report = context.intermediate.get("existing_report", "")
+
+        bullish_report = context.intermediate.get("bullish_report", "")
+        bearish_report = context.intermediate.get("bearish_report", "")
 
         if followup_question:
             conv_text = ""
@@ -68,28 +73,55 @@ Write in Markdown format, with data-driven analysis and specific investment reco
 5. 给出投资建议与风险提示
 6. 使用 Markdown 格式，中文撰写"""
         else:
-            prompt = f"""Write a complete in-depth research report. Title: {title}
+            fundamental_view = context.intermediate.get("fundamental_analysis", "暂无基本面分析")
+            news_view = context.intermediate.get("news_analysis", "暂无新闻分析")
+            technical_view = context.intermediate.get("technical_analysis", "暂无技术分析")
+            charts = context.intermediate.get("analysis_charts", [])
 
-## Report Outline
+            charts_text = ""
+            if charts:
+                for i, c in enumerate(charts, 1):
+                    spec = c.get("spec", c)
+                    result = c.get("result", {})
+                    chart_data = result.get("chart_data") or spec.get("chart_data")
+                    if chart_data:
+                        charts_text += f"\n**图表{i}**: {spec.get('title','')}\n![图表]({chart_data})\n"
+                    else:
+                        charts_text += f"\n**图表{i}**: {spec.get('title','')} (生成失败)\n"
+
+            prompt = f"""请撰写一份完整的深度研究报告。标题：{title}
+
+## 报告大纲
 {outline}
 
-## Search Results Summary
+## 搜索结果综合
 {search_synthesis}
 
-## Financial Data Analysis
+## 财务数据分析
 {fin_interpretation}
 
-## Key Metrics
+## 关键指标
 {metrics_text}
 
-Requirements:
-1. Follow the outline structure strictly
-2. Each section at least 300 characters, include specific data and analysis
-3. Mark data sources in the report
-4. Give investment recommendations and risk warnings at the end
-5. Use Markdown format throughout
+## 基本面分析师观点
+{fundamental_view}
 
-Write in Chinese."""
+## 新闻分析师观点
+{news_view}
+
+## 技术分析师观点
+{technical_view}
+
+## 图表分析
+{charts_text if charts_text else '暂无图表'}
+
+要求：
+1. 严格遵循大纲结构
+2. 每个章节至少300字，包含具体数据和分析
+3. 在报告中标注数据来源
+4. 在结尾给出投资建议和风险提示
+5. 整合四位分析师的观点，给出平衡的结论
+6. 使用 Markdown 格式，用中文撰写"""
         instruction = context.intermediate.get("research_instruction", "")
         if instruction:
             prompt += f"\n\n## 修改要求（来自审查反馈，必须落实）\n{instruction}\n"

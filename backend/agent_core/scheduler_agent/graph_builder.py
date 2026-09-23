@@ -1,24 +1,28 @@
 """LangGraph multi-agent orchestrator with conditional rollback"""
 import logging
 import math
+import time
 from datetime import datetime, date as _date, timezone
 from typing import Any, Dict, Optional, List, TypedDict, Annotated
 from langgraph.graph import StateGraph, START, END
 from langgraph.types import Send
 from app.core.state import ResearchState, AgentTaskState
 from app.models.database import ResearchProject, ResearchTask
-from agent_core.sub_agents.chief_architect import ChiefArchitect
-from agent_core.sub_agents.deep_scout import DeepScout
-from agent_core.sub_agents.data_engineer import ChiefDataEngineer
-from agent_core.sub_agents.data_analyst import DataAnalyst
-from agent_core.sub_agents.chief_researcher import ChiefResearcher
-from agent_core.sub_agents.critic_master import CriticMaster
+from agent_core.sub_agents.chief_architect import ChiefAnalyst
+from agent_core.sub_agents.data_engineer import DataEngineer
+from agent_core.sub_agents.data_analyst import QuantAnalyst
+from agent_core.sub_agents.chief_researcher import SeniorResearcher
+from agent_core.sub_agents.critic_master import ComplianceOfficer
 from agent_core.sub_agents.supervisor_agent import SupervisorAgent, WORKER_BY_TOOL
+from agent_core.sub_agents.fundamental_analyst import FundamentalAnalyst
+from agent_core.sub_agents.news_analyst import NewsAnalyst
+from agent_core.sub_agents.technical_analyst import TechnicalAnalyst
 from agent_core.scheduler_agent.intent_parser import IntentParser
 
 logger = logging.getLogger(__name__)
 SUPERVISOR_MAX_ROUNDS = 8
-CANONICAL_ORDER = ["run_architect", "run_scout", "run_data_engineer", "run_analyst", "run_researcher"]
+CANONICAL_ORDER = ["run_analyst", "run_data_engineer", "run_quant", "run_fundamental",
+                   "run_news", "run_technical", "run_researcher", "run_compliance"]
 REVIEW_ESCALATE_AFTER = 2
 CONV_WINDOW = 4
 
@@ -84,16 +88,19 @@ class WorkflowGraph:
     def __init__(self):
         self.agents = {
             "supervisor": SupervisorAgent(),
-            "chief_architect": ChiefArchitect(),
-            "deep_scout": DeepScout(),
-            "chief_data_engineer": ChiefDataEngineer(),
-            "data_analyst": DataAnalyst(),
-            "chief_researcher": ChiefResearcher(),
-            "critic_master": CriticMaster(),
+            "chief_analyst": ChiefAnalyst(),
+            "data_engineer": DataEngineer(),
+            "quant_analyst": QuantAnalyst(),
+            "senior_researcher": SeniorResearcher(),
+            "compliance_officer": ComplianceOfficer(),
+            "fundamental_analyst": FundamentalAnalyst(),
+            "news_analyst": NewsAnalyst(),
+            "technical_analyst": TechnicalAnalyst(),
         }
         self.parser = IntentParser()
         self._db = None
         self._pid = 0
+        self._agent_durations: Dict[str, float] = {}
 
     async def _save_task(self, agent_name: str, output_data: Any, status: str, error: Optional[str] = None):
         if not self._db:
@@ -102,17 +109,20 @@ class WorkflowGraph:
             ResearchTask.project_id == self._pid, ResearchTask.agent_name == agent_name
         ).first()
         safe_data = _json_safe(output_data)
+        now = datetime.now(timezone.utc)
         if task:
             task.status = status
-            task.output_data = safe_data
-            task.error_message = error
-            task.completed_at = datetime.now(timezone.utc)
+            if safe_data:
+                task.output_data = safe_data
+            if error:
+                task.error_message = error
+            task.completed_at = now
         else:
             task = ResearchTask(
                 project_id=self._pid, agent_name=agent_name, status=status,
                 output_data=safe_data, error_message=error,
-                started_at=datetime.now(timezone.utc),
-                completed_at=datetime.now(timezone.utc),
+                started_at=now,
+                completed_at=now,
             )
             self._db.add(task)
         try:
@@ -157,9 +167,9 @@ class WorkflowGraph:
             update["agent_outputs"] = {
                 agent_name: {"status": task.status, "data": task.output_data, "error": task.error}
             }
-        if agent_name == "chief_researcher":
+        if agent_name == "senior_researcher":
             update["final_report"] = rs.final_report
-        elif agent_name == "critic_master":
+        elif agent_name == "compliance_officer":
             update["review_passed"] = rs.review_passed
             update["review_feedback"] = rs.review_feedback
             update["review_score"] = rs.review_score
@@ -167,12 +177,17 @@ class WorkflowGraph:
         return update
 
     async def _node_agent(self, state: GraphState, name: str) -> dict:
+        t0 = time.time()
+        await self._save_task(name, None, "running")
         rs = self._to_research_state(state)
         rs = await self.agents[name].run(rs)
         update = self._from_research_state(rs, name)
+        elapsed = round(time.time() - t0, 1)
         task = rs.agent_tasks.get(name)
         if task:
             await self._save_task(name, task.output_data, task.status, task.error)
+        logger.info(f"[agent] {name} done in {elapsed}s")
+        self._agent_durations[name] = elapsed
         return update
 
     async def _node_parse(self, state: GraphState) -> dict:
@@ -182,10 +197,9 @@ class WorkflowGraph:
     def _supervisor_snapshot(self, gs: GraphState) -> str:
         it = gs.get("intermediate") or {}
         report = gs.get("final_report") or it.get("draft_report") or ""
-        search_n = len(it.get("raw_search_results") or [])
         hint = ""
         if report and not gs.get("review_passed"):
-            hint = "\n建议: 审查未通过，可带 instruction 重派 run_researcher 修改，再派 run_critic 复查。"
+            hint = "\n建议: 审查未通过，可带 instruction 重派 run_researcher 修改，再派 run_compliance 复查。"
         followup = it.get("followup_question", "")
         task_line = gs.get("original_request", "")
         if followup:
@@ -199,28 +213,34 @@ class WorkflowGraph:
             f"任务: {task_line}",
             "当前阶段状态:",
             f"- outline: {'已完成' if it.get('outline') else '未完成'}",
-            f"- search: {'已完成(%d条)' % search_n if it.get('search_synthesis') else '未完成'}",
             f"- financial data: {'已完成' if it.get('financial_interpretation') else '未完成'}",
             f"- charts: {'已完成' if it.get('analysis_charts') else '未完成'}",
+            f"- fundamental: {'已完成' if it.get('fundamental_analysis') else '未完成'}",
+            f"- news: {'已完成' if it.get('news_analysis') else '未完成'}",
+            f"- technical: {'已完成' if it.get('technical_analysis') else '未完成'}",
             f"- draft report: {'已完成(%d字)' % len(report) if report else '未完成'}",
-            f"- critic: score={gs.get('review_score')} passed={gs.get('review_passed')} feedback={str(gs.get('review_feedback') or '')[:200]}",
-            "下一步: 派遣一个需要的 worker（run_architect / run_scout / run_data_engineer / run_analyst / run_researcher / run_critic），或全部完成后回答完成。" + hint,
+            f"- compliance: score={gs.get('review_score')} passed={gs.get('review_passed')} feedback={str(gs.get('review_feedback') or '')[:200]}",
+            "下一步: 派遣一个需要的 worker（run_analyst / run_data_engineer / run_quant / run_fundamental / run_news / run_technical / run_researcher / run_compliance），或全部完成后回答完成。" + hint,
         ]) + (("\n" + conv_text) if conv_text else "")
 
     def _next_missing_stage(self, gs: GraphState) -> str:
         it = gs.get("intermediate") or {}
         report = gs.get("final_report") or it.get("draft_report") or ""
         if not it.get("outline"):
-            return "run_architect"
-        if not it.get("search_synthesis"):
-            return "run_scout"
+            return "run_analyst"
         if not it.get("financial_interpretation"):
             return "run_data_engineer"
         if not it.get("analysis_charts"):
-            return "run_analyst"
+            return "run_quant"
+        if not it.get("fundamental_analysis"):
+            return "run_fundamental"
+        if not it.get("news_analysis"):
+            return "run_news"
+        if not it.get("technical_analysis"):
+            return "run_technical"
         if not report:
             return "run_researcher"
-        return "run_critic"
+        return "run_compliance"
 
     async def _node_supervisor(self, state: GraphState) -> dict:
         gs: GraphState = dict(state)
@@ -248,7 +268,7 @@ class WorkflowGraph:
                 decision = {"type": "invalid", "raw": "finished before report"}
 
             tool = decision.get("tool", "")
-            if tool == "run_critic" and not (gs.get("final_report") or gs["intermediate"].get("draft_report")):
+            if tool == "run_compliance" and not (gs.get("final_report") or gs["intermediate"].get("draft_report")):
                 tool = "run_researcher"
             if tool not in WORKER_BY_TOOL:
                 if decision["type"] == "invalid" and not (gs.get("final_report") or gs["intermediate"].get("draft_report")):
@@ -260,7 +280,7 @@ class WorkflowGraph:
                     continue
 
             logger.info(f"[supervisor] round {rounds + 1} decision: {str(decision)[:300]}")
-            if tool == "run_critic" and not (gs.get("final_report") or gs["intermediate"].get("draft_report")):
+            if tool == "run_compliance" and not (gs.get("final_report") or gs["intermediate"].get("draft_report")):
                 tool = "run_researcher"
             if tool not in WORKER_BY_TOOL:
                 history.append({"role": "user", "content": f"无效决策: {str(decision)[:200]}。请只派遣一个 worker。"})
@@ -307,14 +327,14 @@ class WorkflowGraph:
             history = history[-6:]
 
             if tool == "run_researcher":
-                upd = await self._node_agent(gs, "critic_master")
+                upd = await self._node_agent(gs, "compliance_officer")
                 gs.update(upd)
                 gs["intermediate"] = dict(gs["intermediate"] or {})
                 gs["agent_outputs"] = dict(gs["agent_outputs"] or {})
                 if gs.get("review_feedback"):
                     gs["intermediate"]["critic_previous_feedback"] = gs["review_feedback"]
                 last_tool, repeats = "", 0
-                logger.info(f"[supervisor] auto critic after researcher, passed={gs.get('review_passed')}")
+                logger.info(f"[supervisor] auto compliance after researcher, passed={gs.get('review_passed')}")
 
         if not (gs.get("final_report") or gs["intermediate"].get("draft_report")):
             logger.warning("[supervisor] no report produced, fallback pipeline")
@@ -330,6 +350,13 @@ class WorkflowGraph:
             "report_chars": len(gs.get("final_report") or ""),
         }, "success")
 
+        if self._agent_durations:
+            total = round(sum(self._agent_durations.values()), 1)
+            lines = [f"[latency] agent durations (total {total}s):"]
+            for n, d in sorted(self._agent_durations.items(), key=lambda x: -x[1]):
+                lines.append(f"  {n:<25s} {d}s")
+            logger.info("\n".join(lines))
+
         return {k: gs[k] for k in ("intermediate", "agent_outputs", "final_report",
                                    "review_passed", "review_feedback", "review_score", "review_attempts")
                 if k in gs}
@@ -337,17 +364,21 @@ class WorkflowGraph:
     async def _run_fallback_pipeline(self, gs: GraphState) -> GraphState:
         it = gs.get("intermediate") or {}
         if not it.get("outline"):
-            gs.update(await self._node_agent(gs, "chief_architect"))
-        if not it.get("search_synthesis"):
-            gs.update(await self._node_agent(gs, "deep_scout"))
+            gs.update(await self._node_agent(gs, "chief_analyst"))
         if not it.get("financial_interpretation"):
-            gs.update(await self._node_agent(gs, "chief_data_engineer"))
+            gs.update(await self._node_agent(gs, "data_engineer"))
         if not it.get("analysis_charts"):
-            gs.update(await self._node_agent(gs, "data_analyst"))
+            gs.update(await self._node_agent(gs, "quant_analyst"))
+        if not it.get("fundamental_analysis"):
+            gs.update(await self._node_agent(gs, "fundamental_analyst"))
+        if not it.get("news_analysis"):
+            gs.update(await self._node_agent(gs, "news_analyst"))
+        if not it.get("technical_analysis"):
+            gs.update(await self._node_agent(gs, "technical_analyst"))
         if not gs.get("final_report"):
-            gs.update(await self._node_agent(gs, "chief_researcher"))
+            gs.update(await self._node_agent(gs, "senior_researcher"))
         if not gs.get("review_passed"):
-            gs.update(await self._node_agent(gs, "critic_master"))
+            gs.update(await self._node_agent(gs, "compliance_officer"))
             if not gs.get("review_passed") and gs.get("final_report"):
                 gs["intermediate"] = dict(gs.get("intermediate") or {})
                 gs["intermediate"]["research_instruction"] = str(gs.get("review_feedback") or "")[:1000]
@@ -355,8 +386,8 @@ class WorkflowGraph:
                 gs["intermediate"]["research_provider"] = "deepseek"
                 gs["intermediate"]["critic_provider"] = "deepseek"
                 logger.info("[supervisor] fallback revision round uses DeepSeek")
-                gs.update(await self._node_agent(gs, "chief_researcher"))
-                gs.update(await self._node_agent(gs, "critic_master"))
+                gs.update(await self._node_agent(gs, "senior_researcher"))
+                gs.update(await self._node_agent(gs, "compliance_officer"))
         return gs
 
     def _make_agent_node(self, name: str):

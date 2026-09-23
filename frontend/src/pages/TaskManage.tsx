@@ -36,10 +36,17 @@ const TaskManage: React.FC = () => {
   const [followupQ, setFollowupQ] = useState('');
   const [followupPolling, setFollowupPolling] = useState(false);
   const [followupBase, setFollowupBase] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalItems, setTotalItems] = useState(0);
 
-  const fetch = async () => {
+  const fetch = async (page: number = 1) => {
     setLoading(true);
-    try { setProjects(await getProjects()); } catch { message.error('获取失败'); }
+    try {
+      const data = await getProjects(page, 10);
+      setProjects(data.items || []);
+      setTotalItems(data.total || 0);
+      setCurrentPage(data.page || page);
+    } catch { message.error('获取失败'); }
     setLoading(false);
   };
   useEffect(() => { fetch(); }, []);
@@ -52,7 +59,7 @@ const TaskManage: React.FC = () => {
       message.success(`创建成功 ID: ${r.project_id}`);
       setModalOpen(false);
       form.resetFields();
-      fetch();
+      fetch(1);
     } catch (e: any) { message.error('创建失败'); }
   };
   const handleDownload = (p: any) => {
@@ -140,7 +147,7 @@ const TaskManage: React.FC = () => {
         await deleteProjects(selectedRowKeys as number[]);
         message.success(`已删除 ${selectedRowKeys.length} 个项目`);
         setSelectedRowKeys([]);
-        fetch();
+        fetch(currentPage);
       },
     });
   };
@@ -150,7 +157,7 @@ const TaskManage: React.FC = () => {
       title: '确认删除', icon: <ExclamationCircleOutlined />,
       content: `删除「${p.title}」？不可恢复。`,
       okButtonProps: { danger: true },
-      onOk: async () => { await deleteProject(p.id); message.success('已删除'); fetch(); },
+      onOk: async () => { await deleteProject(p.id); message.success('已删除'); fetch(currentPage); },
     });
   };
 
@@ -181,7 +188,7 @@ const TaskManage: React.FC = () => {
         <Col><Title level={4} style={{ margin: 0 }}><ThunderboltOutlined style={{ marginRight: 8, color: '#1A7DFF' }} />研究任务管理</Title></Col>
         <Col>
           <Space>
-            <Button icon={<ReloadOutlined />} onClick={fetch}>刷新</Button>
+            <Button icon={<ReloadOutlined />} onClick={() => fetch(currentPage)}>刷新</Button>
             {selectedRowKeys.length > 0 && (
               <Button danger icon={<DeleteOutlined />} onClick={handleBatchDelete}>删除 {selectedRowKeys.length} 项</Button>
             )}
@@ -190,7 +197,14 @@ const TaskManage: React.FC = () => {
         </Col>
       </Row>
 
-      <Card><Table dataSource={projects} columns={columns} rowKey="id" loading={loading} pagination={{ pageSize: 10 }}
+      <Card><Table dataSource={projects} columns={columns} rowKey="id" loading={loading}
+        pagination={{
+          current: currentPage,
+          pageSize: 10,
+          total: totalItems,
+          showSizeChanger: false,
+          onChange: (page) => fetch(page),
+        }}
         rowSelection={{ selectedRowKeys, onChange: setSelectedRowKeys }}
       /></Card>
 
@@ -282,16 +296,28 @@ const TaskManage: React.FC = () => {
               <Row gutter={[8, 8]} style={{ marginBottom: 16 }}>
                 {(() => {
                   const agentLabels: Record<string, string> = {
-                    supervisor: '主控Agent', chief_architect: '总架构师', deep_scout: '深度侦察', chief_data_engineer: '数据工程师',
-                    data_analyst: '数据分析师', chief_researcher: '首席研究', critic_master: '评论家',
+                    supervisor: '团队负责人',
+                    chief_analyst: '首席分析师',
+                    industry_researcher: '行业研究员',
+                    data_engineer: '数据工程师',
+                    quant_analyst: '量化分析师',
+                    fundamental_analyst: '基本面分析师',
+                    sentiment_analyst: '情绪分析师',
+                    news_analyst: '新闻分析师',
+                    technical_analyst: '技术分析师',
+                    senior_researcher: '高级研究员',
+                    compliance_officer: '合规审核官',
                   };
                   return detail.agent_statuses.map((as: any, i: number) => {
                     const c = statusConfig[as.status] || statusConfig.pending;
+                    const dur = as.duration_s != null ? `${as.duration_s}s` : '';
                     return (
                       <Col span={8} key={i}>
                         <Card size="small"><Space>
                           <RobotOutlined style={{ fontSize: 20, color: c.color }} />
-                          <div><div style={{ fontWeight: 500 }}>{agentLabels[as.agent_name] || as.agent_name}</div><Tag color={c.color}>{c.text}</Tag></div>
+                          <div><div style={{ fontWeight: 500 }}>{agentLabels[as.agent_name] || as.agent_name}</div>
+                            <Space size={4}><Tag color={c.color}>{c.text}</Tag>{dur && <span style={{ color: '#999', fontSize: 12 }}>{dur}</span>}</Space>
+                          </div>
                         </Space></Card>
                       </Col>
                     );

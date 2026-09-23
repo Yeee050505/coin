@@ -1,23 +1,23 @@
 # coding: utf-8
-"""Data Analyst Agent - analyze data and generate visualizations with LLM"""
+"""量化分析师 - 负责数据可视化与图表生成"""
 from typing import Any, Dict
 from app.agents.base.base_agent import BaseAgent, AgentContext
 from app.tools.registry import call_tool
 import json, re
 
 
-class DataAnalyst(BaseAgent):
+class QuantAnalyst(BaseAgent):
     def __init__(self):
         super().__init__(
-            name="data_analyst",
+            name="quant_analyst",
             model_name="deepseek-chat",
             system_prompt="""
-You are a financial data analyst. Extract key metrics from financial data and
-output 2-3 chart specifications as JSON. Each chart must have:
-chart_type (bar/line/pie), title, labels (list), values (list of numbers).
+你是一名金融量化分析师。从财务数据中提取关键指标，
+输出2-3个图表规格为JSON。每个图表必须包含：
+chart_type (bar/line/pie), title, labels (列表), values (数字列表)。
 
-Output ONLY a JSON array, no other text. Example:
-[{"chart_type":"bar","title":"Revenue Trend","labels":["2024","2025","2026"],"values":[120,145,168]}]
+只输出JSON数组，不要输出其他内容。示例：
+[{"chart_type":"bar","title":"营收趋势","labels":["2024","2025","2026"],"values":[120,145,168]}]
 """,
         )
 

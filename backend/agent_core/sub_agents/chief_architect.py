@@ -1,29 +1,29 @@
 # coding: utf-8
-"""Architect Agent - uses LLM for research outline generation"""
+"""首席分析师 - 负责需求分析和研报框架规划"""
 from typing import Any, Dict
 from app.agents.base.base_agent import BaseAgent, AgentContext
 
 
-class ChiefArchitect(BaseAgent):
+class ChiefAnalyst(BaseAgent):
     def __init__(self):
         super().__init__(
-            name="chief_architect",
+            name="chief_analyst",
             model_name="deepseek-chat",
             system_prompt="""
-You are a senior financial research architect. Based on the user's research requirements:
-1. Analyze the core dimensions of the research topic
-2. Create a structured report outline (with chapters and sub-chapters)
-3. Determine the data types needed for each chapter
-4. Output the outline in standard Markdown format with ## heading levels
+你是一名资深金融首席分析师。基于用户的研究需求：
+1. 深入分析研究主题的核心维度
+2. 设计结构化的研报大纲（包含章节和子章节）
+3. 确定每个章节需要的数据类型
+4. 输出标准 Markdown 格式的大纲，使用 ## 作为标题层级
 
-Only output the outline, no other content.
+只输出大纲，不要输出其他内容。
 """,
         )
 
     async def execute(self, context: AgentContext) -> Dict[str, Any]:
         request = context.state.original_request
         outline = await self._call_llm(
-            f"Please design a detailed research report outline for the following topic:\n\n{request}\n\nRequirements: 6-8 chapters, 2-3 sub-sections per chapter, use Markdown ## format.\n\nOutput in Chinese."
+            f"请为以下研究主题设计详细的研报大纲：\n\n{request}\n\n要求：6-8个章节，每个章节2-3个子章节，使用 Markdown ## 格式。\n\n用中文输出。"
         )
         context.save_intermediate("outline", outline)
-        return {"status": "success", "data": {"outline": outline}, "source": "chief_architect"}
+        return {"status": "success", "data": {"outline": outline}, "source": "chief_analyst"}
