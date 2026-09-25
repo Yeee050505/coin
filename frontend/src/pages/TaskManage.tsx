@@ -262,6 +262,10 @@ const TaskManage: React.FC = () => {
                       <div style={{ color: '#555', fontSize: 13 }}>
                         <ReactMarkdown
                           remarkPlugins={[remarkGfm]}
+                          urlTransform={(url: string) =>
+                            /^data:image\//i.test(url) || /^(https?|ircs?|mailto|xmpp):/i.test(url) || !url.includes(':')
+                              ? url
+                              : ''}
                           components={{
                             img: ({ node, ...props }) => (
                               <img {...props} style={{ maxWidth: '100%', display: 'block', margin: '8px 0' }} alt="" />
