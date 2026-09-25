@@ -11,6 +11,8 @@ import {
 } from '@ant-design/icons';
 import { getProjects, getProjectDetail, createProject, deleteProject, deleteProjects, downloadReport } from '../services/api';
 import { getReport, followupProject } from '../services/api';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 const { Text, Title } = Typography;
 const { TextArea } = Input;
@@ -257,16 +259,30 @@ const TaskManage: React.FC = () => {
                   </Title>
                   <Spin spinning={reportLoading}>
                     <Card size="small" style={{ background: '#fafafa', maxHeight: 400, overflow: 'auto' }}>
-                      {report.sections && report.sections.length > 0 ? (
-                        report.sections.map((s: any, i: number) => (
-                          <div key={i} style={{ marginBottom: 12 }}>
-                            <Text strong style={{ fontSize: 15 }}>{s.title}</Text>
-                            <div style={{ whiteSpace: 'pre-wrap', color: '#555', marginTop: 4 }}>{s.content}</div>
-                          </div>
-                        ))
-                      ) : (
-                        <Text type="secondary">{report.content || '暂无报告内容'}</Text>
-                      )}
+                      <div style={{ color: '#555', fontSize: 13 }}>
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          components={{
+                            img: ({ node, ...props }) => (
+                              <img {...props} style={{ maxWidth: '100%', display: 'block', margin: '8px 0' }} alt="" />
+                            ),
+                            h1: ({ children }) => <div style={{ fontSize: 18, fontWeight: 600, margin: '12px 0 6px' }}>{children}</div>,
+                            h2: ({ children }) => <div style={{ fontSize: 16, fontWeight: 600, margin: '12px 0 6px' }}>{children}</div>,
+                            h3: ({ children }) => <div style={{ fontSize: 14, fontWeight: 600, margin: '10px 0 4px' }}>{children}</div>,
+                            h4: ({ children }) => <div style={{ fontSize: 13, fontWeight: 600, margin: '8px 0 4px' }}>{children}</div>,
+                            p: ({ children }) => <div style={{ margin: '6px 0', lineHeight: 1.7 }}>{children}</div>,
+                            table: ({ children }) => (
+                              <div style={{ overflowX: 'auto' }}>
+                                <table style={{ borderCollapse: 'collapse', fontSize: 12 }}>{children}</table>
+                              </div>
+                            ),
+                            th: ({ children }) => <th style={{ border: '1px solid #ddd', padding: '4px 8px', background: '#f0f0f0' }}>{children}</th>,
+                            td: ({ children }) => <td style={{ border: '1px solid #ddd', padding: '4px 8px' }}>{children}</td>,
+                          }}
+                        >
+                          {report.content || ''}
+                        </ReactMarkdown>
+                      </div>
                     </Card>
                   </Spin>
                 </div>

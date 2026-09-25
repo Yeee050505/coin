@@ -178,6 +178,12 @@ async def finance_news(keyword: str = "", limit: int = 12):
     from app.tools.financial_api import fetch_finance_news
     return await fetch_finance_news(keyword, limit)
 
+@register_tool(name="company_announcement", description="Recent company disclosures/announcements from CNINFO: title, date, url",
+               parameters={"type": "object", "properties": {"stock_code": {"type": "string"}, "days": {"type": "integer"}}, "required": ["stock_code"]})
+async def company_announcement(stock_code: str, days: int = 30):
+    from app.tools.financial_api import fetch_company_announcement
+    return await fetch_company_announcement(stock_code, days)
+
 @register_tool(name="hk_stock", description="Hong Kong stock daily history (candlesticks, last N days)",
                parameters={"type": "object", "properties": {"stock_code": {"type": "string"}, "days": {"type": "integer"}}, "required": ["stock_code"]})
 async def hk_stock(stock_code: str, days: int = 90):

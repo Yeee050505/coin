@@ -724,7 +724,10 @@ async def fetch_finance_news(keyword: str = "", limit: int = 12) -> Dict[str, An
                 text = f"{r.get('标题', '')} {r.get('摘要', '')}"
                 if kw in text:
                     matched.append(r)
-        rows = matched if len(matched) >= 3 else [r for _, r in df.iterrows()]
+            # 有关键词时只返回命中条目, 不混入无关全球快讯 (噪声会误导分析)
+            rows = matched
+        else:
+            rows = [r for _, r in df.iterrows()]
         results = []
         for r in rows[:limit]:
             results.append({
@@ -735,6 +738,39 @@ async def fetch_finance_news(keyword: str = "", limit: int = 12) -> Dict[str, An
             })
         return {'status': 'success', 'keyword': kw, 'matched': len(matched),
                 'results': results, 'source': 'eastmoney_news'}
+
+    return await _cached(key, _do)
+
+
+# --- 公司公告: 巨潮资讯 (实测0.5s, 公司级真实事件) ---
+
+async def fetch_company_announcement(code: str, days: int = 30) -> Dict[str, Any]:
+    digits = ''.join(ch for ch in str(code) if ch.isdigit())
+    if len(digits) < 6:
+        return {'status': 'error', 'stock': code, 'message': 'invalid code'}
+    key = f"ann:{digits}:{days}"
+
+    async def _do():
+        import akshare as ak
+        from datetime import datetime, timedelta
+        end = datetime.now()
+        start = end - timedelta(days=max(1, min(days, 365)))
+        await _ak_throttle()
+        df = await _run_in_thread(lambda: ak.stock_zh_a_disclosure_report_cninfo(
+            symbol=digits, market='沪深京',
+            start_date=start.strftime('%Y%m%d'), end_date=end.strftime('%Y%m%d')))
+        if df is None or df.empty:
+            return {'status': 'success', 'stock': digits, 'total': 0, 'results': [],
+                    'source': 'cninfo'}
+        results = []
+        for _, r in df.iterrows():
+            results.append({
+                'title': str(r.get('公告标题', ''))[:150],
+                'time': str(r.get('公告时间', ''))[:10],
+                'url': str(r.get('公告链接', '')),
+            })
+        return {'status': 'success', 'stock': digits, 'total': len(results),
+                'results': results[:15], 'source': 'cninfo'}
 
     return await _cached(key, _do)
 
