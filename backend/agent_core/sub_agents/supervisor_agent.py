@@ -105,7 +105,11 @@ class SupervisorAgent(BaseAgent):
         from app.core.config import settings
         history = history or []
 
-        if settings.llm_provider == "local_qwen":
+        provider = settings.llm_provider
+        if provider == "auto":
+            from app.llm.router import route
+            provider = await route("supervisor", snapshot)
+        if provider == "local_qwen":
             try:
                 from app.llm.local_qwen import generate, _parse_json
                 msgs = [

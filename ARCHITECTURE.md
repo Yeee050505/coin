@@ -11,7 +11,7 @@
 | **前端** | React 18, TypeScript, Ant Design 5, Vite, Axios | SPA，轮询更新状态 |
 | **后端** | Python 3.13, FastAPI, SQLAlchemy 2.0, PyMySQL | REST API，端口 8001 |
 | **Agent 框架** | LangGraph 1.2.6 (`StateGraph`) | Supervisor 主控循环：状态快照 + LLM 决策派遣 worker |
-| **LLM** | DeepSeek Chat API（`deepseek-chat`） via `httpx` | 直连 HTTP，规避 OpenAI SDK 编码问题 |
+| **LLM** | DeepSeek Chat API（`deepseek-chat`） via `httpx`；本地 Qwen2.5-3B；`LLM_PROVIDER=auto` 智能路由 | 简单任务（摘要/JSON/大纲）→ 3B 本地，复杂推理（估值/新闻/写作/审校）→ API，三层分类（Agent白名单/启发式/3B分类器），直连 HTTP 规避 OpenAI SDK 编码问题 |
 | **数据源** | AKShare（东方财富/新浪/同花顺）: 行情/资金流/估值分位/研报评级/财经快讯/行业板块/港股/财务比率, yfinance, Bing CN 网页搜索 | 多源竞争/故障转移（新浪→东财、东财→同花顺等降级链） |
 | **数据库** | MySQL 8.0，JSON 列 | `research_projects`、`research_tasks` 表 |
 | **任务编排** | `threading.Thread` + `asyncio.new_event_loop()` 调用 LangGraph | 每个工作流独占一个守护线程 |

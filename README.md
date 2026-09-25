@@ -83,7 +83,8 @@
 | 能力 | 实现 |
 |---|---|
 | **function calling** | 双协议：DeepSeek 原生 tools / 本地 Qwen ReAct JSON；模型自主选工具 + 参数，max_rounds 兜底 |
-| **多模型后端** | `LLM_PROVIDER` 一键切换 DeepSeek API / 本地 Qwen2.5-3B-Instruct（transformers, bf16 GPU, 线程锁串行化） |
+| **多模型后端** | `LLM_PROVIDER` 一键切换 DeepSeek API / 本地 Qwen2.5-3B-Instruct / `auto` 智能路由（transformers, bf16 GPU, 线程锁串行化） |
+| **任务路由器** | `auto` 模式三层分类：①Agent白名单（大纲/摘要/图表JSON/技术解读/主控决策→3B）②启发式（>3000字或因果/交叉比对关键词→API）③3B分类器兜底；复杂推理（估值/新闻/写作/审校）转发 DeepSeek |
 | **多轮追问** | compliance 携上次反馈复查，supervisor 带 instruction 重派研究员 |
 | **工程韧性** | 28 次故障修复（issues.md），压测成功率 100% |
 
@@ -120,7 +121,7 @@
 | 层 | 技术 |
 |---|---|
 | **AI 编排** | LangGraph (StateGraph + Supervisor 主控循环) |
-| **LLM** | 本地 Qwen2.5-3B-Instruct (transformers, bf16 GPU) / DeepSeek Chat API（`LLM_PROVIDER` 一键切换） |
+| **LLM** | 本地 Qwen2.5-3B-Instruct (transformers, bf16 GPU) / DeepSeek Chat API（`LLM_PROVIDER`: deepseek / local_qwen / auto 智能路由） |
 | **后端** | Python 3.13 + FastAPI + SQLAlchemy 2.0 + PyMySQL |
 | **前端** | React 18 + TypeScript + Ant Design 5 + Vite |
 | **数据** | AKShare（东财/新浪/同花顺，行情/资金流/估值/研报/快讯/港股/财务比率，多源降级）+ yfinance + Bing CN 搜索 |
@@ -170,6 +171,7 @@ backend/
     tools/                             — AKShare 封装 + 工具注册（7 个工具）
     agents/base/base_agent.py          — Agent 基类（_call_llm / function calling 双协议）
     llm/local_qwen.py                  — 本地 Qwen 推理（transformers GPU 单例）
+    llm/router.py                      — LLM 任务路由（简单→3B / 复杂→API, 三层分类）
     core/state.py                      — ResearchState 状态模型
     models/                            — ORM 模型
 frontend/
@@ -195,14 +197,14 @@ npm run build    # 构建
 ### LLM 后端切换（backend/.env）
 
 ```
-# 本地模型（默认）
-LLM_PROVIDER=local_qwen
+# 智能路由（推荐）: 简单任务→本地3B, 复杂推理→DeepSeek
+LLM_PROVIDER=auto
 LOCAL_MODEL_PATH=C:/Users/xxx/.cache/modelscope/models/Qwen--Qwen2.5-3B-Instruct/snapshots/master
-
-# 或 DeepSeek API
-LLM_PROVIDER=deepseek
 DEEPSEEK_API_KEY=sk-xxx
-DEEPSEEK_API_BASE=https://api.deepseek.com
+
+# 或强制单一后端
+LLM_PROVIDER=local_qwen   # 全部本地
+LLM_PROVIDER=deepseek     # 全部 API
 ```
 
 ### 创建研究任务

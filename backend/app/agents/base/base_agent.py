@@ -26,9 +26,12 @@ class BaseAgent(ABC):
         self.system_prompt = system_prompt
     async def _call_llm(self, user_message: str, system_override: str = "", temperature: float = 0.7,
                         provider_override: str = "", max_tokens: int = 4096) -> str:
-        """Calls LLM: local Qwen (transformers) primary, DeepSeek API as fallback."""
+        """Calls LLM: auto 路由(简单→local Qwen / 复杂→DeepSeek), local 异常时回退 DeepSeek."""
         from app.core.config import settings
         provider = provider_override or settings.llm_provider
+        if provider == "auto":
+            from app.llm.router import route
+            provider = await route(self.name, user_message)
         if provider == "local_qwen":
             try:
                 from app.llm.local_qwen import generate
@@ -89,9 +92,12 @@ class BaseAgent(ABC):
                                    max_rounds: int = 4, temperature: float = 0.7,
                                    provider_override: str = "") -> Dict[str, Any]:
         """LLM with function calling: model picks tools + args, tools execute, loop until final answer.
-        Local Qwen primary, DeepSeek API as fallback on local failure."""
+        auto 路由(简单→local / 复杂→DeepSeek), local 异常时回退 DeepSeek."""
         from app.core.config import settings
         provider = provider_override or settings.llm_provider
+        if provider == "auto":
+            from app.llm.router import route
+            provider = await route(self.name, user_message)
         if provider == "local_qwen":
             try:
                 from app.llm.local_qwen import generate_with_tools
