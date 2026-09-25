@@ -1,0 +1,1 @@
+﻿total=130184 cjk=3889 cjk+punct=4328 nonspace_noB64=6366 b64len=122815

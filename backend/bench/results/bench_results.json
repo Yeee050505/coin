@@ -1,0 +1,273 @@
+{
+ "started_at": "2026-09-26T00:59:59.842304",
+ "commit": "448d507",
+ "runs": [
+  {
+   "project_id": 88,
+   "status": "success",
+   "seconds": 120.6,
+   "cjk_chars": 3889,
+   "total_chars": 129866,
+   "agent_durations": {
+    "chief_analyst": 3.0,
+    "data_engineer": 48.0,
+    "quant_analyst": 3.0,
+    "fundamental_analyst": 14.0,
+    "news_analyst": 10.0,
+    "technical_analyst": 4.0,
+    "senior_researcher": 16.0,
+    "compliance_officer": 6.0,
+    "supervisor": 0.0
+   },
+   "log_stats": {
+    "fallback": 0,
+    "router": {},
+    "oom_or_crash": 0,
+    "errors": 0
+   },
+   "mode": "deepseek",
+   "stock": "贵州茅台 600519"
+  },
+  {
+   "project_id": 89,
+   "status": "success",
+   "seconds": 96.5,
+   "cjk_chars": 3736,
+   "total_chars": 102713,
+   "agent_durations": {
+    "chief_analyst": 4.0,
+    "data_engineer": 29.0,
+    "quant_analyst": 2.0,
+    "fundamental_analyst": 11.0,
+    "news_analyst": 8.0,
+    "technical_analyst": 4.0,
+    "senior_researcher": 16.0,
+    "compliance_officer": 7.0,
+    "supervisor": 0.0
+   },
+   "log_stats": {
+    "fallback": 0,
+    "router": {},
+    "oom_or_crash": 0,
+    "errors": 0
+   },
+   "mode": "deepseek",
+   "stock": "比亚迪 002594"
+  },
+  {
+   "project_id": 90,
+   "status": "success",
+   "seconds": 96.5,
+   "cjk_chars": 4011,
+   "total_chars": 122043,
+   "agent_durations": {
+    "chief_analyst": 3.0,
+    "data_engineer": 30.0,
+    "quant_analyst": 3.0,
+    "fundamental_analyst": 13.0,
+    "news_analyst": 7.0,
+    "technical_analyst": 5.0,
+    "senior_researcher": 16.0,
+    "compliance_officer": 6.0,
+    "supervisor": 0.0
+   },
+   "log_stats": {
+    "fallback": 0,
+    "router": {},
+    "oom_or_crash": 0,
+    "errors": 0
+   },
+   "mode": "deepseek",
+   "stock": "宁德时代 300750"
+  },
+  {
+   "project_id": 91,
+   "status": "success",
+   "seconds": 224.9,
+   "cjk_chars": 4666,
+   "total_chars": 115718,
+   "agent_durations": {
+    "chief_analyst": 13.0,
+    "data_engineer": 70.0,
+    "quant_analyst": 17.0,
+    "fundamental_analyst": 12.0,
+    "news_analyst": 8.0,
+    "technical_analyst": 14.0,
+    "senior_researcher": 18.0,
+    "compliance_officer": 17.0,
+    "supervisor": 0.0
+   },
+   "log_stats": {
+    "fallback": 0,
+    "router": {
+     "local_qwen": 12,
+     "deepseek": 5
+    },
+    "oom_or_crash": 0,
+    "errors": 0
+   },
+   "mode": "auto",
+   "stock": "贵州茅台 600519"
+  },
+  {
+   "project_id": 92,
+   "status": "success",
+   "seconds": 160.6,
+   "cjk_chars": 3786,
+   "total_chars": 48407,
+   "agent_durations": {
+    "chief_analyst": 9.0,
+    "data_engineer": 73.0,
+    "quant_analyst": 3.0,
+    "fundamental_analyst": 11.0,
+    "news_analyst": 7.0,
+    "technical_analyst": 11.0,
+    "senior_researcher": 16.0,
+    "compliance_officer": 15.0,
+    "supervisor": 0.0
+   },
+   "log_stats": {
+    "fallback": 0,
+    "router": {
+     "local_qwen": 12,
+     "deepseek": 5
+    },
+    "oom_or_crash": 0,
+    "errors": 0
+   },
+   "mode": "auto",
+   "stock": "比亚迪 002594"
+  },
+  {
+   "project_id": 93,
+   "status": "success",
+   "seconds": 176.7,
+   "cjk_chars": 4143,
+   "total_chars": 75784,
+   "agent_durations": {
+    "chief_analyst": 32.0,
+    "data_engineer": 56.0,
+    "quant_analyst": 15.0,
+    "fundamental_analyst": 12.0,
+    "news_analyst": 8.0,
+    "technical_analyst": 11.0,
+    "senior_researcher": 16.0,
+    "compliance_officer": 15.0,
+    "supervisor": 0.0
+   },
+   "log_stats": {
+    "fallback": 0,
+    "router": {
+     "local_qwen": 12,
+     "deepseek": 5
+    },
+    "oom_or_crash": 0,
+    "errors": 0
+   },
+   "mode": "auto",
+   "stock": "宁德时代 300750"
+  },
+  {
+   "project_id": 94,
+   "status": "success",
+   "seconds": 329.5,
+   "cjk_chars": 3452,
+   "total_chars": 106210,
+   "agent_durations": {
+    "chief_analyst": 15.0,
+    "data_engineer": 62.0,
+    "quant_analyst": 24.0,
+    "fundamental_analyst": 41.0,
+    "news_analyst": 19.0,
+    "technical_analyst": 16.0,
+    "senior_researcher": 23.0,
+    "compliance_officer": 98.0,
+    "supervisor": 0.0
+   },
+   "log_stats": {
+    "fallback": 1,
+    "router": {},
+    "oom_or_crash": 5,
+    "errors": 0
+   },
+   "mode": "local_qwen",
+   "stock": "贵州茅台 600519"
+  },
+  {
+   "project_id": 95,
+   "status": "success",
+   "seconds": 409.9,
+   "cjk_chars": 4679,
+   "total_chars": 54486,
+   "agent_durations": {
+    "chief_analyst": 20.0,
+    "data_engineer": 60.0,
+    "quant_analyst": 10.0,
+    "fundamental_analyst": 75.0,
+    "news_analyst": 20.0,
+    "technical_analyst": 16.0,
+    "senior_researcher": 29.0,
+    "compliance_officer": 170.0,
+    "supervisor": 0.0
+   },
+   "log_stats": {
+    "fallback": 1,
+    "router": {},
+    "oom_or_crash": 5,
+    "errors": 0
+   },
+   "mode": "local_qwen",
+   "stock": "比亚迪 002594"
+  },
+  {
+   "project_id": 96,
+   "status": "success",
+   "seconds": 409.8,
+   "cjk_chars": 4373,
+   "total_chars": 66784,
+   "agent_durations": {
+    "chief_analyst": 17.0,
+    "data_engineer": 64.0,
+    "quant_analyst": 11.0,
+    "fundamental_analyst": 87.0,
+    "news_analyst": 18.0,
+    "technical_analyst": 14.0,
+    "senior_researcher": 35.0,
+    "compliance_officer": 154.0,
+    "supervisor": 0.0
+   },
+   "log_stats": {
+    "fallback": 1,
+    "router": {},
+    "oom_or_crash": 5,
+    "errors": 0
+   },
+   "mode": "local_qwen",
+   "stock": "宁德时代 300750"
+  }
+ ],
+ "mode_stats": {
+  "deepseek": {
+   "fallback": 0,
+   "router": {},
+   "oom_or_crash": 0,
+   "errors": 0
+  },
+  "auto": {
+   "fallback": 0,
+   "router": {
+    "local_qwen": 36,
+    "deepseek": 15
+   },
+   "oom_or_crash": 0,
+   "errors": 0
+  },
+  "local_qwen": {
+   "fallback": 3,
+   "router": {},
+   "oom_or_crash": 15,
+   "errors": 0
+  }
+ },
+ "finished_at": "2026-09-26T01:34:48.899620"
+}

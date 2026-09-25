@@ -15,9 +15,9 @@
 | **data_engineer** | 数据工程师 | 获取真实财务数据并解读 | AKShare 3 源竞速（东财/新浪/同花顺）+ yfinance，缓存 300s |
 | **quant_analyst** | 量化分析师 | 数据可视化 | LLM 生成图表规格 → matplotlib 渲染 SVG |
 | **fundamental_analyst** | 基本面分析师 | 公司基本面深度分析 | 财务指标、估值模型、护城河分析 |
-| **news_analyst** | 新闻分析师 | 行业与公司新闻追踪 | 联网搜索（Bing CN）+ 新闻聚合、事件驱动分析、政策影响评估 |
+| **news_analyst** | 新闻分析师 | 行业与公司新闻追踪 | 三渠道融合：巨潮公司公告(近30天) + 东财财经快讯(公司名匹配) + 站点限定 Bing 搜索，标题去重后交 LLM；事件驱动与政策影响分析 |
 | **technical_analyst** | 技术分析师 | 技术指标与K线分析 | K线形态、MACD/RSI/布林带等技术指标 |
-| **senior_researcher** | 高级研究员 | 撰写完整研究报告 | 融合全部 Agent 产出；支持修改要求注入 |
+| **senior_researcher** | 高级研究员 | 撰写完整研究报告 | 融合全部 Agent 产出；支持修改要求注入；LLM 无法复写 base64，图表由代码程序化追加"附录：关键数据图表" |
 | **compliance_officer** | 合规审核官 | 质量把关与追问驱动 | 5 维度打分 + 携带上次反馈复查；score≥55 视为通过 |
 
 ### 协作机制
@@ -49,6 +49,7 @@
 - **DeepSeek 双重兜底**：本地推理失败/空输出 → 自动重试 DS API；本地评审连续 2 次未通过 → 研究员+评审强制切 DS 重写再审
 - **用户侧多轮追问**：`POST /api/projects/{id}/followup` 逐轮对已有报告提问 —— 采用轻量 Q&A 模式直接作答（不重生成整篇报告）；会话隔离 + 最近 4 轮滑动窗口上下文；每轮独立落库 `followup_N`，前端详情弹窗逐轮展示
 - **per-agent 延迟追踪**：每个 Agent 执行自动记录 `started_at`/`completed_at`，API 返回 `duration_s`，后端日志汇总打印耗时
+- **报告呈现**：报告以 Markdown 落库（`report_content` 升级 LONGTEXT，支持万字+图表），前端 ReactMarkdown 渲染标题/表格/内嵌 SVG（放行 `data:image` 协议）；应用日志落盘 `logs/app.log`，长任务全程可观测
 
 ---
 
@@ -100,19 +101,28 @@
 - text2sql：f-string 拼接 → SQLAlchemy 参数化 + 只允许 SELECT
 - `run_chart_code`：任意代码执行 → 预定义图表模板，彻底移除 subprocess
 
+**5. 数据质量与幻觉治理**
+
+- 数据源扩展至 **16 个工具**：行情快照/资金流/估值分位/行业板块/研报评级/财务比率/公司公告/财经快讯/港股/联网搜索等，每类国内源配置降级链（新浪/东财/同花顺/巨潮互备）
+- 财报幻觉修复：估值/比率/资金流按结构化 key 提取注入 prompt（实测修复 PE 幻觉：模型编造 88.7% 历史分位 → 数据源真实 1.4%）
+- 新闻"信息不足"修复：以股票名称为关键词走 公司公告+结构化快讯+站点限定搜索 三渠道，去重后交 LLM（修复实测：公告 0→15 条、快讯 0→11 条）
+
 ### Result
+
+> 2026-09-26 三模式压测（P88-P96，茅台 600519 / 比亚迪 002594 / 宁德 300750 各 1 次，commit `448d507`）
 
 | 指标 | 数据 | 说明 |
 |---|---|---|
-| **API 模式总耗时** | **~100s** | LangGraph 压测（P51-P53），成功率 100% |
-| **本地模型总耗时** | **~430s** | Qwen2.5-3B-Instruct（P60-P61），全部 Agent success |
-| **Supervisor 压测** | **P62-P67 全绿** | 本地 3B 6 轮：主控自主编排（P64-P67 无兜底）、审查收敛（P66 首轮通过 75 分 / P67 DS 升级后通过 72 分）、报告最长 10912 字 |
-| **DeepSeek 兜底** | P67 实测 | 本地评审连挂 2 次自动切 DS 重写再审，一次通过；报告 10912 字 |
-| **Agent 成功率** | **100%** | 全部 Agent success |
-| **报告长度** | 3000-10912 字 | 本地受 max_tokens(4096) 限制；DS 兜底重写可达万字级 |
-| **数据源** | 6 类 | 网络搜索(Bing CN) + A 股行情/资金流/估值分位 + 财报与财务比率 + 券商研报评级 + 财经快讯/行业板块（AKShare 多源降级） |
+| **云端 API 模式** | **平均 104.5s** | P88-P90：120.6/96.5/96.5s，3/3 成功，0 兜底 0 OOM |
+| **auto 智能路由** | **平均 187.4s** | P91-P93：本地 36 次 / 云端 15 次（云端调用 -70%），0 兜底 0 OOM；首单含模型冷启动 224.9s |
+| **纯本地模式** | **平均 383.1s** | P94-P96：3/3 成功；3 次 senior_researcher CUDA OOM 全部自动切 DS 兜底，硬崩溃 0 |
+| **Agent 成功率** | **100%** | 本轮 9/9 + 历史压测全部 success |
+| **报告长度** | 3452-4679 汉字 | 正文约 6.4K 字符（含数据表格）+ 2 张内嵌 SVG 图表；早期 DS 重写实测最长 10912 字（P67） |
+| **数据源** | **16 个工具** | 行情/资金流/估值分位/行业板块/研报评级/财务比率/公司公告/财经快讯/港股 + Bing 搜索；三渠道新闻融合 |
+| **LoRA 微调** | **92.9% / JSON 100%** | 42 条域外测试 39/42，2026-09-26 复测与历史一致；adapter 14MB |
+| **Supervisor 压测** | P62-P67 全绿 | 历史：主控自主编排无兜底、审查收敛、DS 升级重写通过 |
 | **故障恢复** | 28/28 | 全部修复并验证无复发 |
-| **per-agent 延迟** | 3-142s | quant_analyst 最快(3s)，senior_researcher 最慢(142s) |
+| **per-agent 延迟** | 3-170s | 云端模式 3-48s（data_engineer 最慢），本地模式 compliance 复查最长 170s |
 
 ---
 
@@ -124,7 +134,7 @@
 | **LLM** | 本地 Qwen2.5-3B-Instruct (transformers, bf16 GPU) / DeepSeek Chat API（`LLM_PROVIDER`: deepseek / local_qwen / auto 智能路由） |
 | **后端** | Python 3.13 + FastAPI + SQLAlchemy 2.0 + PyMySQL |
 | **前端** | React 18 + TypeScript + Ant Design 5 + Vite |
-| **数据** | AKShare（东财/新浪/同花顺，行情/资金流/估值/研报/快讯/港股/财务比率，多源降级）+ yfinance + Bing CN 搜索 |
+| **数据** | AKShare（东财/新浪/同花顺/巨潮，行情/资金流/估值/研报/公告/快讯/港股/财务比率，多源降级）+ yfinance + Bing CN 搜索 |
 | **可视化** | matplotlib 渲染 SVG 图表 |
 | **数据库** | MySQL 8.0（JSON 列，时区自动转 Asia/Shanghai） |
 
@@ -174,6 +184,8 @@ backend/
     llm/router.py                      — LLM 任务路由（简单→3B / 复杂→API, 三层分类）
     core/state.py                      — ResearchState 状态模型
     models/                            — ORM 模型
+  bench/
+    run_bench.py                       — 三模式压测编排（切换 provider + 重启 + 指标采集）
 frontend/
   src/pages/TaskManage.tsx             — 项目管理页面（CRUD + 轮询 + 下载）
   src/components/MainLayout.tsx        — 布局组件
@@ -205,6 +217,15 @@ DEEPSEEK_API_KEY=sk-xxx
 # 或强制单一后端
 LLM_PROVIDER=local_qwen   # 全部本地
 LLM_PROVIDER=deepseek     # 全部 API
+```
+
+### 三模式压测
+
+```bash
+# deepseek / auto / local_qwen × 3 标的自动压测
+# 自动切换 backend/.env 的 LLM_PROVIDER 并重启服务，串行提交任务、采集耗时/字数/兜底/OOM
+cd backend/bench && python run_bench.py
+# 产出: bench/results/bench_results.json（明细） summary_table.md（汇总表） progress.json（过程）
 ```
 
 ### 创建研究任务
@@ -292,3 +313,4 @@ cd backend && python -m training.test_adapter_42
 - `ARCHITECTURE.md` — 架构细节：调度机制、状态设计、压测量化（API/本地/Supervisor 三套数据）
 - `issues.md` — 28 个问题记录与修复（含 Supervisor 改造全过程 P62-P66、DeepSeek 双重兜底 P67、用户侧 Q&A 追问 P67-followup、per-agent 延迟追踪、Bing 搜索切换）
 - `backend/training/TEST_REPORT.md` — react_protocol LoRA 微调测试报告
+- `backend/bench/results/` — 三模式压测数据（P88-P96：run_bench.py 汇总表与逐任务明细）

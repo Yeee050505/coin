@@ -1,0 +1,4 @@
+bench_console.log
+progress.json
+server_stdout.log
+*.tmp
