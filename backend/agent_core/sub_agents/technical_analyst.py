@@ -37,7 +37,14 @@ class TechnicalAnalyst(BaseAgent):
         if fin_data:
             for key, val in fin_data.items():
                 if isinstance(val, dict) and "price" in val:
-                    stock_info = f"当前价格: {val.get('price')}\n"
+                    line = f"当前价格: {val.get('price')}"
+                    if val.get("change_pct") is not None:
+                        line += f" (涨跌幅 {val.get('change_pct')}%)"
+                    if val.get("turnover_rate") is not None:
+                        line += f" 换手率 {val.get('turnover_rate')}%"
+                    if val.get("source"):
+                        line += f" [来源 {val.get('source')}]"
+                    stock_info = line + "\n"
                     hist = val.get("history", [])
                     if hist:
                         closes = [h.get("收盘", h.get("close", 0)) for h in hist[-30:] if h]

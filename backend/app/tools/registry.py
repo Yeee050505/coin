@@ -122,13 +122,67 @@ async def stock_ths(stock_code: str, days: int = 90):
 
 # Financial Data
 
-@register_tool(name="fetch_financial_data", description="Fetch real financial data via AKShare (A-shares) or yfinance (US/international): overview, income, balance, cashflow",
-               parameters={"type": "object", "properties": {"stock_code": {"type": "string"}, "indicator": {"type": "string", "enum": ["income", "balance", "cashflow", "overview"]}, "years": {"type": "integer"}}, "required": ["stock_code", "indicator"]})
+@register_tool(name="fetch_financial_data", description="Fetch real financial data via AKShare (A-shares) or yfinance (US/international): overview, income, balance, cashflow, ratio (key financial ratios by period)",
+               parameters={"type": "object", "properties": {"stock_code": {"type": "string"}, "indicator": {"type": "string", "enum": ["income", "balance", "cashflow", "overview", "ratio"]}, "years": {"type": "integer"}}, "required": ["stock_code", "indicator"]})
 async def fetch_financial_data(stock_code: str, indicator: str = "overview", years: int = 3):
+    if indicator == "ratio":
+        from app.tools.financial_api import fetch_financial_ratio
+        return await fetch_financial_ratio(stock_code)
     from app.tools.financial_api import fetch_stock_overview, fetch_stock_financials
     if indicator == "overview":
         return await fetch_stock_overview(stock_code)
     return await fetch_stock_financials(stock_code, indicator, years)
+
+
+# Extended data sources (multi-source with graceful degradation)
+
+@register_tool(name="stock_snapshot", description="Real-time A-share snapshot: price, change_pct, volume, turnover (Sina primary, Eastmoney fallback)",
+               parameters={"type": "object", "properties": {"stock_code": {"type": "string"}}, "required": ["stock_code"]})
+async def stock_snapshot(stock_code: str):
+    from app.tools.financial_api import fetch_stock_snapshot
+    return await fetch_stock_snapshot(stock_code)
+
+@register_tool(name="fund_flow", description="A-share individual stock money flow (main force net inflow, unit 亿元, last N days)",
+               parameters={"type": "object", "properties": {"stock_code": {"type": "string"}, "days": {"type": "integer"}}, "required": ["stock_code"]})
+async def fund_flow(stock_code: str, days: int = 30):
+    from app.tools.financial_api import fetch_fund_flow
+    return await fetch_fund_flow(stock_code, days)
+
+@register_tool(name="valuation", description="A-share valuation with historical percentile: PE(TTM), PB, PS and their percentile in history",
+               parameters={"type": "object", "properties": {"stock_code": {"type": "string"}}, "required": ["stock_code"]})
+async def valuation(stock_code: str):
+    from app.tools.financial_api import fetch_valuation
+    return await fetch_valuation(stock_code)
+
+@register_tool(name="industry_info", description="A-share industry classification and industry board recent performance",
+               parameters={"type": "object", "properties": {"stock_code": {"type": "string"}}, "required": ["stock_code"]})
+async def industry_info(stock_code: str):
+    from app.tools.financial_api import fetch_industry_info
+    return await fetch_industry_info(stock_code)
+
+@register_tool(name="sector_fund_flow", description="Industry sector money-flow ranking today (unit 亿元, top 15)",
+               parameters={"type": "object", "properties": {}})
+async def sector_fund_flow():
+    from app.tools.financial_api import fetch_sector_fund_flow
+    return await fetch_sector_fund_flow()
+
+@register_tool(name="research_report", description="Latest broker research reports for an A-share stock: title, rating, institution, earnings forecast",
+               parameters={"type": "object", "properties": {"stock_code": {"type": "string"}, "top": {"type": "integer"}}, "required": ["stock_code"]})
+async def research_report(stock_code: str, top: int = 8):
+    from app.tools.financial_api import fetch_research_report
+    return await fetch_research_report(stock_code, top)
+
+@register_tool(name="finance_news", description="Structured financial news flash from Eastmoney: title, summary, time (keyword filter optional)",
+               parameters={"type": "object", "properties": {"keyword": {"type": "string"}, "limit": {"type": "integer"}}})
+async def finance_news(keyword: str = "", limit: int = 12):
+    from app.tools.financial_api import fetch_finance_news
+    return await fetch_finance_news(keyword, limit)
+
+@register_tool(name="hk_stock", description="Hong Kong stock daily history (candlesticks, last N days)",
+               parameters={"type": "object", "properties": {"stock_code": {"type": "string"}, "days": {"type": "integer"}}, "required": ["stock_code"]})
+async def hk_stock(stock_code: str, days: int = 90):
+    from app.tools.financial_api import fetch_hk_history
+    return await fetch_hk_history(stock_code, days)
 
 
 # ?? Text2SQL ??

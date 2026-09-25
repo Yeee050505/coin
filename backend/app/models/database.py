@@ -2,6 +2,7 @@
 """Database models with China-timezone-aware ORM layer (Asia/Shanghai on read)."""
 from datetime import datetime, timezone, timedelta
 from sqlalchemy import Column, Integer, String, Float, Text, DateTime, JSON, TypeDecorator
+from sqlalchemy.dialects.mysql import LONGTEXT
 from app.models import Base
 
 
@@ -43,7 +44,7 @@ class ResearchProject(Base):
     status = Column(String(20), default="pending", index=True)
     params = Column(JSON, nullable=True)
     report_path = Column(String(500), nullable=True)
-    report_content = Column(Text, nullable=True)
+    report_content = Column(Text().with_variant(LONGTEXT(), "mysql"), nullable=True)
     chart_data = Column(JSON, nullable=True)
     metrics = Column(JSON, nullable=True)
     agent_progress = Column(JSON, nullable=True)

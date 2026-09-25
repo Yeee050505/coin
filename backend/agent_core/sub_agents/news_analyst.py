@@ -33,19 +33,33 @@ class NewsAnalyst(BaseAgent):
         request = context.state.original_request
 
         news_results = []
+        # 主源: 结构化财经快讯 (东财, 关键词匹配)
         try:
-            r = await call_tool("web_search", query=f"{request} 最新新闻 2024", max_results=5)
+            import asyncio as _aio
+            kw = context.state.stock_codes[0] if context.state.stock_codes else ""
+            r = await _aio.wait_for(call_tool("finance_news", keyword=kw, limit=12), timeout=20)
+            if r and r.get("status") == "success":
+                for item in r.get("results", []):
+                    news_results.append({"title": item.get("title", ""),
+                                         "content": f"{item.get('summary', '')} ({item.get('time', '')})",
+                                         "url": item.get("url", "")})
+        except Exception:
+            pass
+        # 备源: 联网搜索补充 (关键词匹配不足时更多依赖)
+        try:
+            r = await call_tool("web_search", query=f"{request} 最新新闻", max_results=5)
             if r and r.get("status") == "success":
                 news_results.extend(r.get("results", []))
-        except:
+        except Exception:
             pass
 
-        try:
-            r = await call_tool("web_search", query=f"{request} 政策 行业动态", max_results=3)
-            if r and r.get("status") == "success":
-                news_results.extend(r.get("results", []))
-        except:
-            pass
+        if len(news_results) < 6:
+            try:
+                r = await call_tool("web_search", query=f"{request} 政策 行业动态", max_results=3)
+                if r and r.get("status") == "success":
+                    news_results.extend(r.get("results", []))
+            except Exception:
+                pass
 
         news_text = "\n".join([f"- {s.get('title','')}: {s.get('content','')[:300]}" for s in news_results[:8]])
 

@@ -12,7 +12,7 @@
 | **后端** | Python 3.13, FastAPI, SQLAlchemy 2.0, PyMySQL | REST API，端口 8001 |
 | **Agent 框架** | LangGraph 1.2.6 (`StateGraph`) | Supervisor 主控循环：状态快照 + LLM 决策派遣 worker |
 | **LLM** | DeepSeek Chat API（`deepseek-chat`） via `httpx` | 直连 HTTP，规避 OpenAI SDK 编码问题 |
-| **数据源** | AKShare（东方财富/新浪/同花顺）, yfinance, Bing CN 网页搜索 | 多源竞争/故障转移模式 |
+| **数据源** | AKShare（东方财富/新浪/同花顺）: 行情/资金流/估值分位/研报评级/财经快讯/行业板块/港股/财务比率, yfinance, Bing CN 网页搜索 | 多源竞争/故障转移（新浪→东财、东财→同花顺等降级链） |
 | **数据库** | MySQL 8.0，JSON 列 | `research_projects`、`research_tasks` 表 |
 | **任务编排** | `threading.Thread` + `asyncio.new_event_loop()` 调用 LangGraph | 每个工作流独占一个守护线程 |
 

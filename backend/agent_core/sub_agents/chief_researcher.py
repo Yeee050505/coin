@@ -32,6 +32,7 @@ class SeniorResearcher(BaseAgent):
         title = context.state.title
         followup_question = context.intermediate.get("followup_question", "")
         existing_report = context.intermediate.get("existing_report", "")
+        charts_text = ""
 
         bullish_report = context.intermediate.get("bullish_report", "")
         bearish_report = context.intermediate.get("bearish_report", "")
@@ -81,13 +82,14 @@ class SeniorResearcher(BaseAgent):
             charts_text = ""
             if charts:
                 for i, c in enumerate(charts, 1):
-                    spec = c.get("spec", c)
-                    result = c.get("result", {})
-                    chart_data = result.get("chart_data") or spec.get("chart_data")
+                    spec = c.get("spec") or c
+                    result = c.get("result", {}) or {}
+                    chart_data = result.get("chart_data") or (spec.get("chart_data") if isinstance(spec, dict) else None)
+                    title = spec.get("title", "") if isinstance(spec, dict) else ""
                     if chart_data:
-                        charts_text += f"\n**图表{i}**: {spec.get('title','')}\n![图表]({chart_data})\n"
+                        charts_text += f"\n**图表{i}**: {title}\n![图表]({chart_data})\n"
                     else:
-                        charts_text += f"\n**图表{i}**: {spec.get('title','')} (生成失败)\n"
+                        charts_text += f"\n**图表{i}**: {title} (生成失败)\n"
 
             prompt = f"""请撰写一份完整的深度研究报告。标题：{title}
 
@@ -128,6 +130,10 @@ class SeniorResearcher(BaseAgent):
         provider = context.intermediate.get("research_provider", "")
         max_tokens = 2048 if followup_question else 4096
         final_report = await self._call_llm(prompt, temperature=0.5, provider_override=provider, max_tokens=max_tokens)
+
+        # base64 图表 LLM 无法可靠复写 -> 程序化注入附录
+        if not followup_question and charts_text and "data:image/svg" not in (final_report or ""):
+            final_report = (final_report or "") + "\n\n---\n\n## 附录：关键数据图表\n" + charts_text
 
         context.save_intermediate("draft_report", final_report)
         context.state.final_report = final_report

@@ -25,10 +25,38 @@ class DataEngineer(BaseAgent):
         )
 
     def _compact_financial(self, raw: dict) -> str:
-        """compress financial data to ~600 chars — only key metrics"""
+        """compress financial data to ~900 chars — only key metrics"""
         lines = []
         for key, val in raw.items():
             if isinstance(val, dict):
+                if key.endswith("_snapshot"):
+                    lines.append(
+                        f"[{key}] name={val.get('name')} price={val.get('price')} "
+                        f"chg={val.get('change_pct')}% amount={val.get('amount')} source={val.get('source')}")
+                    continue
+                if key.endswith("_valuation"):
+                    lines.append(
+                        f"[{key}] as_of={val.get('as_of')} PE(TTM)={val.get('pe_ttm')}"
+                        f"(分位{val.get('pe_ttm_percentile')}%) PB={val.get('pb')}"
+                        f"(分位{val.get('pb_percentile')}%) PS={val.get('ps')}(分位{val.get('ps_percentile')}%)")
+                    continue
+                if key.endswith("_fund_flow"):
+                    inst = val.get("instant") or {}
+                    tot = val.get("totals") or {}
+                    recent = val.get("recent") or []
+                    recent_str = " ".join(f"{r['date'][-5:]}:{r['main_net']}" for r in recent[-5:])
+                    lines.append(
+                        f"[{key}] source={val.get('source')} d5={tot.get('d5_main_net_yi')}亿 "
+                        f"d10={tot.get('d10_main_net_yi')}亿 当日={inst.get('main_net_yi')}亿 "
+                        f"recent[{recent_str}]")
+                    continue
+                if key.endswith("_industry_info"):
+                    bh = val.get("board_history") or {}
+                    lines.append(
+                        f"[{key}] industry={val.get('industry')} "
+                        f"board_last={bh.get('latest_close')} chg={bh.get('latest_change_pct')}% "
+                        f"board_trend={bh.get('recent_30d_close')}")
+                    continue
                 if "price" in val:
                     lines.append(f"[{key}] price={val.get('price')} vol={val.get('volume')}")
                     hist = val.get("history", [])
@@ -46,10 +74,12 @@ class DataEngineer(BaseAgent):
                         for r in records[:2]:
                             pairs = [f"{k}={v}" for k, v in r.items() if v is not None and str(v) != "nan"]
                             lines.append(f"  {', '.join(pairs[:6])}")
+                if "periods" in val and isinstance(val["periods"], list):
+                    lines.append(f"[{key}] periods={str(val['periods'][:3])[:400]}")
             else:
                 lines.append(f"{key}={val}")
         text = " | ".join(lines)
-        return text[:900]
+        return text[:1400]
 
     async def execute(self, context: AgentContext) -> Dict[str, Any]:
         financial_data = {}
@@ -59,14 +89,26 @@ class DataEngineer(BaseAgent):
         request = context.state.original_request
 
         for code in stock_codes:
-            for ind in ["overview", "income", "balance"]:
+            for ind in ["overview", "income", "balance", "ratio"]:
                 try:
                     r = await asyncio.wait_for(
                         call_tool("fetch_financial_data", stock_code=code, indicator=ind, years=3),
-                        timeout=15
+                        timeout=20
                     )
-                    if r and r.get("status") == "success" and (r.get("data") or ind == "overview"):
+                    if r and r.get("status") == "success" and (r.get("data") or r.get("periods") or ind == "overview"):
                         financial_data[f"{code}_{ind}"] = r.get("data") or r
+                except:
+                    pass
+            for tool, kwargs in [
+                ("stock_snapshot", {"stock_code": code}),
+                ("fund_flow", {"stock_code": code, "days": 30}),
+                ("valuation", {"stock_code": code}),
+                ("industry_info", {"stock_code": code}),
+            ]:
+                try:
+                    r = await asyncio.wait_for(call_tool(tool, **kwargs), timeout=25)
+                    if r and r.get("status") == "success":
+                        financial_data[f"{code}_{tool}"] = r
                 except:
                     pass
 

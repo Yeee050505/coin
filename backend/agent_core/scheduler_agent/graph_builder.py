@@ -197,6 +197,9 @@ class WorkflowGraph:
     def _supervisor_snapshot(self, gs: GraphState) -> str:
         it = gs.get("intermediate") or {}
         report = gs.get("final_report") or it.get("draft_report") or ""
+        fd = it.get("financial_data") or {}
+        has_val = any(k.endswith("_valuation") for k in fd)
+        has_fflow = any(k.endswith("_fund_flow") for k in fd)
         hint = ""
         if report and not gs.get("review_passed"):
             hint = "\n建议: 审查未通过，可带 instruction 重派 run_researcher 修改，再派 run_compliance 复查。"
@@ -213,7 +216,9 @@ class WorkflowGraph:
             f"任务: {task_line}",
             "当前阶段状态:",
             f"- outline: {'已完成' if it.get('outline') else '未完成'}",
-            f"- financial data: {'已完成' if it.get('financial_interpretation') else '未完成'}",
+            f"- financial data: {'已完成' if it.get('financial_interpretation') else '未完成'}"
+            f"{'（含估值分位）' if has_val else ''}"
+            f"{'（含资金流）' if has_fflow else ''}",
             f"- charts: {'已完成' if it.get('analysis_charts') else '未完成'}",
             f"- fundamental: {'已完成' if it.get('fundamental_analysis') else '未完成'}",
             f"- news: {'已完成' if it.get('news_analysis') else '未完成'}",

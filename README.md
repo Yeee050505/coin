@@ -91,6 +91,7 @@
 
 - `asyncio.gather` 并行无依赖调用、`_compact_financial()` 压缩财务 prompt 97K→900 字符
 - 数据源竞速（东财/新浪/同花顺）+ 内存缓存 TTL=300s + 线程池隔离同步库
+- 多源降级链应对国内源不稳定：行情 新浪→东财、资金流 东财→同花顺全市场、板块行情 东财push2→同花顺指数、港股 东财→新浪；失败重试 + 兜底缓存
 - 每个工作流独占 daemon 线程 + 独立 event loop，崩溃互不影响
 
 **4. 安全修复（高危）**
@@ -108,7 +109,7 @@
 | **DeepSeek 兜底** | P67 实测 | 本地评审连挂 2 次自动切 DS 重写再审，一次通过；报告 10912 字 |
 | **Agent 成功率** | **100%** | 全部 Agent success |
 | **报告长度** | 3000-10912 字 | 本地受 max_tokens(4096) 限制；DS 兜底重写可达万字级 |
-| **数据源** | 3 类 | 网络搜索(Bing CN) + A 股行情(AKShare 3 源) + 财报(yfinance) |
+| **数据源** | 6 类 | 网络搜索(Bing CN) + A 股行情/资金流/估值分位 + 财报与财务比率 + 券商研报评级 + 财经快讯/行业板块（AKShare 多源降级） |
 | **故障恢复** | 28/28 | 全部修复并验证无复发 |
 | **per-agent 延迟** | 3-142s | quant_analyst 最快(3s)，senior_researcher 最慢(142s) |
 
@@ -122,7 +123,7 @@
 | **LLM** | 本地 Qwen2.5-3B-Instruct (transformers, bf16 GPU) / DeepSeek Chat API（`LLM_PROVIDER` 一键切换） |
 | **后端** | Python 3.13 + FastAPI + SQLAlchemy 2.0 + PyMySQL |
 | **前端** | React 18 + TypeScript + Ant Design 5 + Vite |
-| **数据** | AKShare（东财/新浪/同花顺）+ yfinance + Bing CN 搜索 |
+| **数据** | AKShare（东财/新浪/同花顺，行情/资金流/估值/研报/快讯/港股/财务比率，多源降级）+ yfinance + Bing CN 搜索 |
 | **可视化** | matplotlib 渲染 SVG 图表 |
 | **数据库** | MySQL 8.0（JSON 列，时区自动转 Asia/Shanghai） |
 
