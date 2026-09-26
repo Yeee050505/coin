@@ -72,7 +72,7 @@ class BaseAgent(ABC):
         try:
             import json
             json_bytes = json.dumps(payload, ensure_ascii=True).encode("utf-8")
-            async with httpx.AsyncClient(timeout=90.0) as client:
+            async with httpx.AsyncClient(timeout=180.0) as client:
                 resp = await client.post(
                     f"{settings.deepseek_api_base}/chat/completions",
                     content=json_bytes,
@@ -82,7 +82,7 @@ class BaseAgent(ABC):
                 data = resp.json()
                 return data["choices"][0]["message"]["content"] or ""
         except asyncio.TimeoutError:
-            logger.error(f"[{self.name}] LLM call timed out after 90s")
+            logger.error(f"[{self.name}] LLM call timed out after 180s")
             raise
         except Exception as e:
             logger.error(f"[{self.name}] LLM call failed: {e}")
